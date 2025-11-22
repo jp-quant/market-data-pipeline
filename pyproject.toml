@@ -1,0 +1,134 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fluxforge"
+version = "0.1.0"
+description = "A modular, high-throughput market data ingestion + ETL pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "you@example.com"}
+]
+keywords = ["market-data", "ingestion", "etl", "crypto", "trading", "websocket"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "websockets>=12.0",
+    "aiohttp>=3.9.0",
+    "pyjwt>=2.8.0",
+    "cryptography>=41.0.0",
+    "pandas>=2.1.0",
+    "pyarrow>=14.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+s3 = [
+    "boto3>=1.34.0",
+    "s3fs>=2023.12.0",
+]
+
+duckdb = [
+    "duckdb>=0.10.0",
+]
+
+all = [
+    "fluxforge[dev,s3,duckdb]",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/fluxforge"
+Documentation = "https://github.com/yourusername/fluxforge#readme"
+Repository = "https://github.com/yourusername/fluxforge"
+Issues = "https://github.com/yourusername/fluxforge/issues"
+
+[project.scripts]
+fluxforge-ingest = "scripts.run_ingestion:main"
+fluxforge-etl = "scripts.run_etl:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingestion*", "etl*", "config*", "scripts*"]
+exclude = ["tests*", "docs*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true

@@ -1,0 +1,34 @@
+# FluxForge Requirements
+# Core dependencies
+
+# WebSocket and async HTTP
+websockets
+aiohttp
+
+# Authentication and security
+pyjwt
+cryptography
+
+# Data processing
+pandas
+pyarrow
+
+# Configuration management
+pydantic
+pydantic-settings
+pyyaml
+
+# Optional: Development tools (uncomment if needed)
+pytest
+pytest-asyncio
+pytest-cov
+black
+ruff
+mypy
+
+# Optional: AWS S3 support (uncomment if needed)
+# boto3
+# s3fs
+
+# Optional: DuckDB support (uncomment if needed)
+# duckdb
