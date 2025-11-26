@@ -1,9 +1,9 @@
 """Coinbase market trades processor - aggregates and enriches trade data."""
 import logging
 from typing import Dict, Any
-from datetime import datetime
 
 from ..base_processor import BaseProcessor
+from ..time_utils import add_time_fields
 
 logger = logging.getLogger(__name__)
 
@@ -83,19 +83,12 @@ class TradesProcessor(BaseProcessor):
     
     def _add_derived_fields(self, record: dict) -> dict:
         """Add basic derived fields."""
-        # Extract timestamp components for partitioning
-        time_field = record.get("time") or record.get("server_timestamp")
-        if time_field:
-            try:
-                dt = datetime.fromisoformat(time_field.replace('Z', '+00:00'))
-                record["year"] = dt.year
-                record["month"] = dt.month
-                record["day"] = dt.day
-                record["hour"] = dt.hour
-                record["date"] = dt.strftime("%Y-%m-%d")
-                record["timestamp"] = dt
-            except Exception as e:
-                logger.debug(f"Failed to parse time: {e}")
+        # Extract timestamp components for partitioning (year, month, day, hour, minute, second, microsecond, date)
+        record = add_time_fields(
+            record,
+            timestamp_field="time",
+            fallback_field="server_timestamp"
+        )
         
         # Trade value (price * size)
         if "price" in record and "size" in record:

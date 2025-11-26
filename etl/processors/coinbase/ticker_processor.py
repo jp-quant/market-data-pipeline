@@ -1,9 +1,9 @@
 """Coinbase ticker processor - normalizes and enriches ticker data."""
 import logging
 from typing import Dict, Any
-from datetime import datetime
 
 from ..base_processor import BaseProcessor
+from ..time_utils import add_time_fields
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +72,12 @@ class TickerProcessor(BaseProcessor):
     
     def _add_derived_fields(self, record: dict) -> dict:
         """Add basic derived fields."""
-        # Extract timestamp components for partitioning
-        time_field = record.get("server_timestamp") or record.get("capture_timestamp")
-        if time_field:
-            try:
-                dt = datetime.fromisoformat(time_field.replace('Z', '+00:00'))
-                record["year"] = dt.year
-                record["month"] = dt.month
-                record["day"] = dt.day
-                record["hour"] = dt.hour
-                record["date"] = dt.strftime("%Y-%m-%d")
-            except Exception as e:
-                logger.debug(f"Failed to parse timestamp: {e}")
+        # Extract timestamp components for partitioning (year, month, day, hour, minute, second, microsecond, date)
+        record = add_time_fields(
+            record,
+            timestamp_field="server_timestamp",
+            fallback_field="capture_timestamp"
+        )
         
         # Compute additional metrics
         if "best_bid" in record and "best_ask" in record:

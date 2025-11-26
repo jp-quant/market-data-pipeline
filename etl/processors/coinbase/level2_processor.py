@@ -1,10 +1,10 @@
 """Coinbase level2 orderbook processor - reconstructs and derives LOB features."""
 import logging
 from typing import Dict, Any, List
-from datetime import datetime
 from collections import defaultdict
 
 from ..base_processor import BaseProcessor
+from ..time_utils import add_time_fields
 
 logger = logging.getLogger(__name__)
 
@@ -96,17 +96,12 @@ class Level2Processor(BaseProcessor):
     
     def _add_derived_fields(self, record: dict) -> dict:
         """Add basic derived fields."""
-        # Extract timestamp components for partitioning
-        if "event_time" in record and record["event_time"]:
-            try:
-                dt = datetime.fromisoformat(record["event_time"].replace('Z', '+00:00'))
-                record["year"] = dt.year
-                record["month"] = dt.month
-                record["day"] = dt.day
-                record["hour"] = dt.hour
-                record["date"] = dt.strftime("%Y-%m-%d")
-            except Exception as e:
-                logger.debug(f"Failed to parse event_time: {e}")
+        # Extract timestamp components for partitioning (year, month, day, hour, minute, second, microsecond, date)
+        record = add_time_fields(
+            record,
+            timestamp_field="event_time",
+            fallback_field="server_timestamp"
+        )
         
         # Flag for snapshot vs update
         record["is_snapshot"] = record.get("event_type") == "snapshot"
