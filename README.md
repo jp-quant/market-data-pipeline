@@ -203,6 +203,12 @@ data/processed/
 - ✅ **Distributed queries**: DuckDB, Spark, Polars can query in parallel
 - ✅ **Schema evolution**: Each file stores its schema independently
 
+⚠️ **CRITICAL: Hive Partitioning Note**
+- Partition columns (`product_id`, `date`) are stored in **directory names**, not in parquet files
+- When querying with Polars, **must use `hive_partitioning=True`** to restore these columns
+- DuckDB and Pandas handle this automatically
+- Without this flag, you'll get `ColumnNotFoundError` for partition columns
+
 **Query Examples**:
 
 ```python
@@ -214,8 +220,9 @@ df = duckdb.query("""
 """).to_df()
 
 # Polars (blazing fast, lazy evaluation)
+# CRITICAL: Use hive_partitioning=True to restore partition columns from directory structure
 import polars as pl
-df = pl.scan_parquet("data/processed/coinbase/ticker/**/*.parquet") \
+df = pl.scan_parquet("data/processed/coinbase/ticker/**/*.parquet", hive_partitioning=True) \
     .filter(pl.col("product_id") == "BTC-USD") \
     .filter(pl.col("date") == "2025-11-26") \
     .collect()
@@ -431,8 +438,9 @@ df = pd.read_parquet("data/processed/coinbase/ticker/product_id=BTC-USD/date=202
 print(df.head())
 
 # Option 3: Use Polars for larger datasets
+# CRITICAL: Use hive_partitioning=True to restore partition columns from directory structure
 import polars as pl
-df = pl.scan_parquet("data/processed/coinbase/ticker/**/*.parquet") \
+df = pl.scan_parquet("data/processed/coinbase/ticker/**/*.parquet", hive_partitioning=True) \
     .filter(pl.col("product_id") == "BTC-USD") \
     .collect()
 ```

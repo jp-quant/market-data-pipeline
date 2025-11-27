@@ -70,15 +70,19 @@ def query_with_polars():
     
     Polars is optimized for DataFrames and has excellent Parquet support.
     Install: pip install polars
+    
+    CRITICAL: Use hive_partitioning=True to restore partition columns
+    (product_id, date, etc.) from directory structure.
     """
     import polars as pl
     
     # Example 1: Lazy scan (doesn't load until needed)
+    # CRITICAL: hive_partitioning=True restores partition columns
     df = (
-        pl.scan_parquet("F:/processed/coinbase/ticker/**/*.parquet")
+        pl.scan_parquet("F:/processed/coinbase/ticker/**/*.parquet", hive_partitioning=True)
         .filter(pl.col("product_id") == "BTC-USD")
         .filter(pl.col("date") == "2025-11-20")
-        .select(["timestamp", "price", "volume_24h"])
+        .select(["capture_timestamp", "price", "volume_24h"])
         .collect()
     )
     
@@ -86,8 +90,9 @@ def query_with_polars():
     print(df.head(10))
     
     # Example 2: Aggregation with lazy evaluation
+    # CRITICAL: hive_partitioning=True restores partition columns
     hourly_stats = (
-        pl.scan_parquet("F:/processed/coinbase/ticker/**/*.parquet")
+        pl.scan_parquet("F:/processed/coinbase/ticker/**/*.parquet", hive_partitioning=True)
         .filter(pl.col("product_id").is_in(["BTC-USD", "ETH-USD"]))
         .group_by(["date", "hour", "product_id"])
         .agg([
