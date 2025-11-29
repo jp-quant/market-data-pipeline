@@ -98,7 +98,7 @@ class ParquetWriter(BaseWriter):
             writer.write(records, "output/coinbase/level2", 
                         partition_cols=["product_id", "date"])
         """
-        if not data:
+        if data is None:
             logger.warning(f"[ParquetWriter] No data to write")
             return
         
@@ -169,8 +169,9 @@ class ParquetWriter(BaseWriter):
             partition_path.mkdir(parents=True, exist_ok=True)
             
             # Drop partition columns from data (stored in directory path)
-            data_df = partition_df.drop(columns=partition_cols, errors='ignore')
-            
+            # data_df = partition_df.drop(columns=partition_cols, errors='ignore')
+            data_df = partition_df
+
             # Generate unique filename
             filename = self._generate_unique_filename()
             output_file = partition_path / filename

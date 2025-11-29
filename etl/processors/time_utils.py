@@ -5,6 +5,14 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# Try to import dateutil as fallback for edge cases
+try:
+    from dateutil import parser as dateutil_parser
+    HAS_DATEUTIL = True
+except ImportError:
+    HAS_DATEUTIL = False
+    logger.warning("dateutil not installed - some timestamp formats may fail. Install with: pip install python-dateutil")
+
 # Note: We use Python's built-in datetime over alternatives like dateutil.parser or pandas
 # because:
 # 1. datetime.fromisoformat() is FAST (C-optimized, ~10x faster than dateutil.parser)
@@ -53,21 +61,36 @@ def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
             # Normalize timezone format (Z -> +00:00)
             normalized = timestamp_str.replace('Z', '+00:00')
             
-            # Handle nanosecond precision (Python datetime only supports microseconds)
-            # Example: 2025-11-27T00:20:02.069533736+00:00 -> 2025-11-27T00:20:02.069533+00:00
+            # Handle fractional seconds (Python datetime supports up to 6 digits - microseconds)
+            # Examples:
+            # - 2025-11-27T00:20:02.069533736+00:00 (9 digits) -> truncate to 6
+            # - 2025-11-27T11:41:54.58958+00:00 (5 digits) -> pad to 6
+            # - 2025-11-27T00:20:02+00:00 (0 digits) -> keep as is
             if '.' in normalized:
                 # Split on decimal point
                 date_part, frac_and_tz = normalized.split('.', 1)
+                
                 # Extract fractional seconds and timezone
                 if '+' in frac_and_tz:
                     frac, tz = frac_and_tz.split('+', 1)
-                    # Truncate to 6 digits (microseconds)
-                    frac = frac[:6]
-                    normalized = f"{date_part}.{frac}+{tz}"
+                    tz_part = f"+{tz}"
                 elif '-' in frac_and_tz[1:]:  # Skip first char in case of negative timezone
                     frac, tz = frac_and_tz.split('-', 1)
+                    tz_part = f"-{tz}"
+                else:
+                    # No timezone in fractional part (shouldn't happen with normalized input)
+                    frac = frac_and_tz
+                    tz_part = ""
+                
+                # Normalize fractional seconds to exactly 6 digits
+                if len(frac) > 6:
+                    # Truncate to 6 digits (e.g., nanoseconds -> microseconds)
                     frac = frac[:6]
-                    normalized = f"{date_part}.{frac}-{tz}"
+                elif len(frac) < 6:
+                    # Pad with zeros to 6 digits (e.g., 58958 -> 589580)
+                    frac = frac.ljust(6, '0')
+                
+                normalized = f"{date_part}.{frac}{tz_part}"
             
             dt = datetime.fromisoformat(normalized)
         else:
@@ -87,7 +110,30 @@ def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
         }
     
     except (ValueError, AttributeError) as e:
-        logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
+        logger.warning(f"Primary parsing failed for '{timestamp_str}': {e}")
+        
+        # FALLBACK: Try dateutil.parser (handles almost any format)
+        if HAS_DATEUTIL and isinstance(timestamp_str, str):
+            try:
+                logger.info(f"Attempting dateutil fallback for: {timestamp_str}")
+                dt = dateutil_parser.parse(timestamp_str)
+                return {
+                    "year": dt.year,
+                    "month": dt.month,
+                    "day": dt.day,
+                    "hour": dt.hour,
+                    "minute": dt.minute,
+                    "second": dt.second,
+                    "microsecond": dt.microsecond,
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "datetime": dt.isoformat(),
+                }
+            except Exception as fallback_error:
+                logger.error(f"Dateutil fallback also failed for '{timestamp_str}': {fallback_error}")
+        else:
+            if not HAS_DATEUTIL:
+                logger.error(f"No fallback available - install dateutil: pip install python-dateutil")
+        
         return {}
 
 
