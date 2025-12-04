@@ -2,7 +2,7 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -30,9 +30,69 @@ class IBKRConfig(BaseModel):
     contracts: list[dict] = Field(default_factory=list)
 
 
+class S3Config(BaseModel):
+    """S3-specific configuration."""
+    bucket: str = ""
+    region: Optional[str] = None  # Auto-detected if None
+    aws_access_key_id: Optional[str] = None  # Uses environment/IAM role if None
+    aws_secret_access_key: Optional[str] = None
+    aws_session_token: Optional[str] = None
+    endpoint_url: Optional[str] = None  # For S3-compatible services (MinIO, etc.)
+
+
+class PathConfig(BaseModel):
+    """Customizable path structure for data organization."""
+    # Ingestion layer paths (relative to storage root)
+    raw_dir: str = "raw"  # Base directory for raw ingestion data
+    active_subdir: str = "active"  # Subdirectory for actively writing segments
+    ready_subdir: str = "ready"  # Subdirectory for segments ready for ETL
+    processing_subdir: str = "processing"  # Subdirectory for ETL in-progress
+    
+    # ETL layer paths (relative to storage root)
+    processed_dir: str = "processed"  # Base directory for processed/transformed data
+
+
+class StorageLayerConfig(BaseModel):
+    """Storage configuration for a specific layer (ingestion or ETL)."""
+    backend: Literal["local", "s3"] = "local"
+    base_dir: str = "./data"
+    s3: Optional[S3Config] = Field(default_factory=S3Config)
+
+
+class StorageConfig(BaseModel):
+    """
+    Explicit storage configuration per layer.
+    
+    Each layer (ingestion, ETL input, ETL output) has its own storage backend.
+    This provides maximum flexibility:
+    - All local: Fast development/testing
+    - All S3: Fully cloud-native
+    - Hybrid: Ingest to local (fast), ETL to S3 (durable)
+    - Multi-bucket: Different S3 buckets for raw vs processed
+    
+    All paths are relative to base_dir (local) or bucket (S3).
+    """
+    # Ingestion layer storage (where raw segments are written)
+    ingestion_storage: StorageLayerConfig = Field(
+        default_factory=lambda: StorageLayerConfig(backend="local", base_dir="./data")
+    )
+    
+    # ETL input storage (where ETL reads raw segments from)
+    etl_storage_input: StorageLayerConfig = Field(
+        default_factory=lambda: StorageLayerConfig(backend="local", base_dir="./data")
+    )
+    
+    # ETL output storage (where processed data is written)
+    etl_storage_output: StorageLayerConfig = Field(
+        default_factory=lambda: StorageLayerConfig(backend="local", base_dir="./data")
+    )
+    
+    # Path structure configuration (applies to all storage backends)
+    paths: PathConfig = Field(default_factory=PathConfig)
+
+
 class IngestionConfig(BaseModel):
     """Ingestion layer configuration."""
-    output_dir: str = "./data/raw"
     batch_size: int = 100
     flush_interval_seconds: float = 5.0
     queue_maxsize: int = 10000
@@ -52,12 +112,9 @@ class ChannelETLConfig(BaseModel):
 
 class ETLConfig(BaseModel):
     """ETL layer configuration."""
-    input_dir: str = "./data/raw/ready"  # Read from ready/ not active/
-    output_dir: str = "./data/processed"
     compression: str = "snappy"
     schedule_cron: Optional[str] = None  # e.g., "0 * * * *" for hourly
     delete_after_processing: bool = True  # Delete raw segments after ETL
-    processing_dir: str = "./data/raw/processing"  # Temp dir during ETL
     
     # Channel-specific configuration
     channels: Dict[str, ChannelETLConfig] = Field(default_factory=lambda: {
@@ -82,6 +139,9 @@ class FluxForgeConfig(BaseModel):
     coinbase: Optional[CoinbaseConfig] = None
     databento: Optional[DatabentoConfig] = None
     ibkr: Optional[IBKRConfig] = None
+    
+    # Storage backend
+    storage: StorageConfig = Field(default_factory=StorageConfig)
     
     # Ingestion settings
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)

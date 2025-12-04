@@ -12,6 +12,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
 
 from config import load_config
+from storage.factory import (
+    create_etl_storage_input,
+    create_etl_storage_output,
+    get_etl_input_path,
+    get_etl_output_path,
+    get_processing_path
+)
 from etl.job import ETLJob
 
 
@@ -75,6 +82,21 @@ def main():
     logger.info(f"Source: {args.source}")
     logger.info(f"Mode: {args.mode}")
     
+    # Create storage backends
+    storage_input = create_etl_storage_input(config)
+    storage_output = create_etl_storage_output(config)
+    
+    # Get paths from config
+    input_path = get_etl_input_path(config, args.source)
+    output_path = get_etl_output_path(config, args.source)
+    processing_path = get_processing_path(config, args.source)
+    
+    logger.info(f"Storage Input:  {storage_input.backend_type} @ {storage_input.base_path}")
+    logger.info(f"Storage Output: {storage_output.backend_type} @ {storage_output.base_path}")
+    logger.info(f"Input path: {input_path}")
+    logger.info(f"Output path: {output_path}")
+    logger.info(f"Processing path: {processing_path}")
+    
     # Convert channel config from Pydantic to dict format
     channel_config = None
     if hasattr(config.etl, 'channels') and config.etl.channels:
@@ -87,12 +109,14 @@ def main():
             if channel_cfg.enabled
         }
     
-    # Create ETL job (Coinbase-specific, no source parameter needed)
+    # Create ETL job
     job = ETLJob(
-        input_dir=config.etl.input_dir,
-        output_dir=config.etl.output_dir,
+        storage_input=storage_input,
+        storage_output=storage_output,
+        input_path=input_path,
+        output_path=output_path,
         delete_after_processing=config.etl.delete_after_processing,
-        processing_dir=config.etl.processing_dir,
+        processing_path=processing_path,
         channel_config=channel_config,
     )
     

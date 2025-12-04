@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
+from storage.base import StorageBackend
 from etl.orchestrators.coinbase_segment_pipeline import CoinbaseSegmentPipeline
 
 logger = logging.getLogger(__name__)
@@ -28,44 +29,59 @@ class ETLJob:
     
     def __init__(
         self,
-        input_dir: str,
-        output_dir: str,
+        storage_input: StorageBackend,
+        storage_output: StorageBackend,
+        input_path: str,
+        output_path: str,
         delete_after_processing: bool = True,
-        processing_dir: Optional[str] = None,
+        processing_path: Optional[str] = None,
         channel_config: Optional[dict] = None,
     ):
         """
         Initialize Coinbase ETL job.
         
         Args:
-            input_dir: Directory containing ready NDJSON segments (ready/)
-            output_dir: Directory for Parquet output
+            storage_input: Storage backend for reading raw data
+            storage_output: Storage backend for writing processed data
+            input_path: Path containing ready NDJSON segments (relative to storage_input root)
+            output_path: Path for Parquet output (relative to storage_output root)
             delete_after_processing: Delete raw segments after successful ETL
-            processing_dir: Temp directory during processing
+            processing_path: Temp path during processing (relative to storage_input root)
             channel_config: Channel-specific configuration for pipelines
         """
-        self.input_dir = Path(input_dir)
-        self.output_dir = Path(output_dir)
+        self.storage_input = storage_input
+        self.storage_output = storage_output
+        self.input_path = input_path
+        self.output_path = output_path
         self.source = "coinbase"
         self.delete_after_processing = delete_after_processing
         
-        # Processing directory (for atomic move)
-        if processing_dir:
-            self.processing_dir = Path(processing_dir) / "coinbase"
+        # Processing path (for atomic move) - always on input storage
+        if processing_path:
+            self.processing_path = processing_path
         else:
-            self.processing_dir = self.input_dir.parent / "processing" / "coinbase"
+            # Default: sibling of input_path
+            self.processing_path = storage_input.join_path(
+                str(Path(input_path).parent),
+                "processing",
+                "coinbase"
+            )
         
-        self.processing_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure processing directory exists
+        self.storage_input.mkdir(self.processing_path)
         
-        # Initialize Coinbase segment pipeline
+        # Initialize Coinbase segment pipeline (uses output storage)
         self.pipeline = CoinbaseSegmentPipeline(
-            output_dir=output_dir,
+            storage=storage_output,
+            output_base_path=output_path,
             channel_config=channel_config,
         )
         
         logger.info(
             f"[ETLJob] Initialized Coinbase ETL: "
-            f"input_dir={input_dir}, output_dir={output_dir}, "
+            f"input_storage={storage_input.backend_type}, "
+            f"output_storage={storage_output.backend_type}, "
+            f"input={input_path}, output={output_path}, "
             f"delete_after={delete_after_processing}"
         )
     
@@ -74,44 +90,87 @@ class ETLJob:
         Process a single NDJSON segment file using pipelines.
         
         Args:
-            segment_file: Path to segment file in ready/
+            segment_file: Path to segment file in ready/ (can be relative or absolute)
             
         Returns:
             True if successful, False otherwise
         """
-        # Move to processing/ directory (atomic, prevents double-processing)
-        processing_file = self.processing_dir / segment_file.name
+        # Handle both Path and string inputs
+        if isinstance(segment_file, str):
+            segment_file = Path(segment_file)
+        
+        # Get segment filename
+        segment_name = segment_file.name if isinstance(segment_file, Path) else str(segment_file).split('/')[-1]
+        
+        # Processing file path (on input storage)
+        processing_file_path = self.storage_input.join_path(self.processing_path, segment_name)
         
         try:
-            os.rename(segment_file, processing_file)
-            logger.info(f"[ETLJob] Processing segment: {segment_file.name}")
+            # Move to processing/ (atomic for local, copy+delete for S3)
+            if self.storage_input.backend_type == "local":
+                # Local: atomic rename
+                src = Path(self.storage_input.get_full_path(
+                    self.storage_input.join_path(self.input_path, segment_name)
+                ))
+                dst = Path(self.storage_input.get_full_path(processing_file_path))
+                
+                # Ensure processing directory exists
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                
+                src.rename(dst)
+                logger.info(f"[ETLJob] Processing segment: {segment_name}")
+            else:
+                # S3: copy to processing, then delete from ready
+                segment_path = self.storage_input.join_path(self.input_path, segment_name)
+                data = self.storage_input.read_bytes(segment_path)
+                self.storage_input.write_bytes(data, processing_file_path)
+                self.storage_input.delete(segment_path)
+                logger.info(f"[ETLJob] Processing segment: {segment_name}")
+        
         except FileNotFoundError:
-            logger.warning(f"[ETLJob] Segment already processed or missing: {segment_file.name}")
+            logger.warning(f"[ETLJob] Segment already processed or missing: {segment_name}")
             return False
         except Exception as e:
             logger.error(f"[ETLJob] Failed to move segment to processing/: {e}")
             return False
         
         try:
+            # Get full path for processing
+            if self.storage_input.backend_type == "local":
+                processing_file = Path(self.storage_input.get_full_path(processing_file_path))
+            else:
+                # For S3, we need to download to temp file for NDJSON reader
+                # TODO: Make NDJSONReader support StorageBackend directly
+                import tempfile
+                data = self.storage_input.read_bytes(processing_file_path)
+                temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.ndjson', delete=False)
+                temp_file.write(data)
+                temp_file.close()
+                processing_file = Path(temp_file.name)
+            
             # Process using segment pipeline (handles all channels)
             self.pipeline.process_segment(processing_file)
             
-            logger.info(f"[ETLJob] Processed {segment_file.name} successfully")
+            logger.info(f"[ETLJob] Processed {segment_name} successfully")
             
-            # Delete or archive processed segment
+            # Cleanup temp file if S3
+            if self.storage_input.backend_type == "s3" and processing_file.exists():
+                processing_file.unlink()
+            
+            # Delete or retain processed segment
             if self.delete_after_processing:
                 try:
-                    processing_file.unlink()
-                    logger.info(f"[ETLJob] Deleted processed segment: {segment_file.name}")
+                    self.storage_input.delete(processing_file_path)
+                    logger.info(f"[ETLJob] Deleted processed segment: {segment_name}")
                 except Exception as e:
                     logger.error(f"[ETLJob] Failed to delete segment: {e}")
             else:
-                logger.info(f"[ETLJob] Segment retained in processing/: {segment_file.name}")
+                logger.info(f"[ETLJob] Segment retained in processing/: {segment_name}")
             
             return True
         
         except Exception as e:
-            logger.error(f"[ETLJob] Error processing segment {segment_file.name}: {e}", exc_info=True)
+            logger.error(f"[ETLJob] Error processing segment {segment_name}: {e}", exc_info=True)
             return False
     
     def _extract_date_from_segment(self, filename: str) -> str:
@@ -144,23 +203,29 @@ class ETLJob:
     
     def process_all(self):
         """Process all available segment files in ready/ directory."""
-        # Only read from input_dir (ready/), never from active/
-        if not self.input_dir.exists():
-            logger.error(f"[ETLJob] Input directory not found: {self.input_dir}")
+        logger.info(f"[ETLJob] Scanning for segments in {self.input_path}")
+        
+        # List all segment files from input storage
+        try:
+            files = self.storage_input.list_files(path=self.input_path, pattern="segment_*.ndjson")
+        except Exception as e:
+            logger.error(f"[ETLJob] Failed to list segments: {e}")
             return
         
-        # Find all segment files (ignore non-segment files)
-        segment_files = sorted(self.input_dir.glob("segment_*.ndjson"))
-        
-        if not segment_files:
-            logger.info(f"[ETLJob] No segments found in {self.input_dir}")
+        if not files:
+            logger.info(f"[ETLJob] No segments found in {self.input_path}")
             return
+        
+        # Sort by path/name
+        segment_files = sorted([f["path"] for f in files])
         
         logger.info(f"[ETLJob] Found {len(segment_files)} segment(s) to process")
         
         success_count = 0
-        for segment_file in segment_files:
-            if self.process_segment(segment_file):
+        for segment_path in segment_files:
+            # Extract filename from path
+            segment_name = segment_path.split('/')[-1] if '/' in segment_path else Path(segment_path).name
+            if self.process_segment(Path(segment_path)):
                 success_count += 1
         
         # Print stats

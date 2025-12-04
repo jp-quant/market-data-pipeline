@@ -14,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
 
 from config import load_config
+from storage.factory import (
+    create_etl_storage_input,
+    create_etl_storage_output,
+    get_etl_input_path,
+    get_etl_output_path,
+    get_processing_path
+)
 from etl.job import ETLJob
 
 
@@ -45,9 +52,18 @@ class ContinuousETLWatcher:
             format=self.config.log_format
         )
         
+        # Create storage backends (may be different in hybrid mode)
+        self.storage_input = create_etl_storage_input(self.config)
+        self.storage_output = create_etl_storage_output(self.config)
+        
         # Create ETL job for each configured source
         self.jobs = {}
         if self.config.coinbase:
+            # Get paths from config
+            input_path = get_etl_input_path(self.config, "coinbase")
+            output_path = get_etl_output_path(self.config, "coinbase")
+            processing_path = get_processing_path(self.config, "coinbase")
+            
             # Convert channel config from Pydantic to dict format
             channel_config = None
             if hasattr(self.config.etl, 'channels') and self.config.etl.channels:
@@ -61,10 +77,12 @@ class ContinuousETLWatcher:
                 }
             
             self.jobs["coinbase"] = ETLJob(
-                input_dir=self.config.etl.input_dir,  # Already points to ready/coinbase
-                output_dir=self.config.etl.output_dir,
+                storage_input=self.storage_input,
+                storage_output=self.storage_output,
+                input_path=input_path,
+                output_path=output_path,
                 delete_after_processing=self.config.etl.delete_after_processing,
-                processing_dir=self.config.etl.processing_dir,
+                processing_path=processing_path,
                 channel_config=channel_config,
             )
         
@@ -77,6 +95,8 @@ class ContinuousETLWatcher:
         logger.info("=" * 80)
         logger.info("FluxForge Continuous ETL Watcher Starting")
         logger.info("=" * 80)
+        logger.info(f"Storage Input:  {self.storage_input.backend_type} @ {self.storage_input.base_path}")
+        logger.info(f"Storage Output: {self.storage_output.backend_type} @ {self.storage_output.base_path}")
         logger.info(f"Poll interval: {self.poll_interval} seconds")
         logger.info(f"Watching sources: {list(self.jobs.keys())}")
         logger.info("=" * 80)
@@ -85,21 +105,30 @@ class ContinuousETLWatcher:
             try:
                 # Process segments for each source
                 for source_name, job in self.jobs.items():
-                    segments = list(job.input_dir.glob("segment_*.ndjson"))
+                    # List segments in input path
+                    try:
+                        files = self.storage_input.list_files(
+                            path=job.input_path,
+                            pattern="segment_*.ndjson"
+                        )
+                    except Exception as e:
+                        logger.error(f"[{source_name}] Failed to list segments: {e}")
+                        continue
                     
-                    if segments:
+                    if files:
                         logger.info(
-                            f"[{source_name}] Found {len(segments)} segment(s) to process"
+                            f"[{source_name}] Found {len(files)} segment(s) to process"
                         )
                         
                         # Process all available segments
                         success_count = 0
-                        for segment in segments:
-                            if job.process_segment(segment):
+                        for file_info in files:
+                            segment_path = file_info["path"]
+                            if job.process_segment(Path(segment_path)):
                                 success_count += 1
                         
                         logger.info(
-                            f"[{source_name}] Processed {success_count}/{len(segments)} "
+                            f"[{source_name}] Processed {success_count}/{len(files)} "
                             "segments successfully"
                         )
                 

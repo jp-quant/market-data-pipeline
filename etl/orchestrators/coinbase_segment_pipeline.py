@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, List
 
+from storage.base import StorageBackend
 from etl.readers.ndjson_reader import NDJSONReader
 from etl.processors.raw_parser import RawParser
 from etl.processors.coinbase import Level2Processor, TradesProcessor, TickerProcessor
@@ -23,23 +24,27 @@ class CoinbaseSegmentPipeline:
     - Writes with appropriate partitioning per channel
     
     Example:
+        storage = create_storage_backend(config)
         pipeline = CoinbaseSegmentPipeline(
-            output_dir="data/processed"
+            storage=storage,
+            output_base_path="processed/coinbase"
         )
         
-        pipeline.process_segment("data/segments/segment_001.ndjson")
+        pipeline.process_segment("raw/ready/coinbase/segment_001.ndjson")
     """
     
     def __init__(
         self,
-        output_dir: str,
+        storage: StorageBackend,
+        output_base_path: str,
         channel_config: Optional[Dict[str, Dict]] = None,
     ):
         """
         Initialize Coinbase segment pipeline.
         
         Args:
-            output_dir: Base output directory for processed data
+            storage: Storage backend instance
+            output_base_path: Base output path for processed data (relative to storage root)
             channel_config: Per-channel configuration
                 {
                     "level2": {
@@ -51,8 +56,9 @@ class CoinbaseSegmentPipeline:
                     }
                 }
         """
+        self.storage = storage
         self.source = "coinbase"
-        self.output_dir = Path(output_dir)
+        self.output_base_path = output_base_path
         self.channel_config = channel_config or self._get_default_config()
         
         # Create channel-specific pipelines
@@ -60,6 +66,7 @@ class CoinbaseSegmentPipeline:
         
         logger.info(
             f"[CoinbaseSegmentPipeline] Initialized, "
+            f"storage={storage.backend_type}, "
             f"channels={list(self.pipelines.keys())}"
         )
     
@@ -110,7 +117,7 @@ class CoinbaseSegmentPipeline:
                     RawParser(source=self.source, channel=channel),
                     processor,
                 ],
-                writer=ParquetWriter(),
+                writer=ParquetWriter(storage=self.storage),
             )
             
             pipelines[channel] = pipeline
@@ -135,7 +142,7 @@ class CoinbaseSegmentPipeline:
         Process a single segment file.
         
         Args:
-            segment_path: Path to NDJSON segment
+            segment_path: Path to NDJSON segment (relative to storage root or absolute local path)
             channels: List of channels to process (if None, process all)
         """
         segment_path = Path(segment_path)
@@ -156,8 +163,8 @@ class CoinbaseSegmentPipeline:
                 config = self.channel_config.get(channel, {})
                 partition_cols = config.get("partition_cols")
                 
-                # Output path: output_dir/source/channel/
-                output_path = self.output_dir / self.source / channel
+                # Output path: output_base_path/channel/ (relative to storage root)
+                output_path = self.storage.join_path(self.output_base_path, channel)
                 
                 # Execute pipeline
                 self.pipelines[channel].execute(

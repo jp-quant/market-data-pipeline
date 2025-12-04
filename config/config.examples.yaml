@@ -1,0 +1,295 @@
+# =============================================================================
+# FluxForge Configuration Examples
+# =============================================================================
+# This file demonstrates various storage configuration scenarios.
+# Copy the relevant example to config/config.yaml and customize.
+
+# =============================================================================
+# EXAMPLE 1: ALL-LOCAL STORAGE (Development/Testing)
+# =============================================================================
+# Use this for local development, testing, or single-machine deployments.
+# All data stays on local filesystem.
+
+---
+storage:
+  backend: "local"
+  base_dir: "F:/"  # Or "./data" for relative path
+  
+  paths:
+    raw_dir: "raw"
+    active_subdir: "active"
+    ready_subdir: "ready"
+    processing_subdir: "processing"
+    processed_dir: "processed"
+
+coinbase:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  product_ids: ["BTC-USD", "ETH-USD"]
+  channels: ["ticker", "level2", "market_trades"]
+
+ingestion:
+  batch_size: 100
+  segment_max_mb: 100
+
+etl:
+  compression: "snappy"
+  delete_after_processing: true
+  
+  channels:
+    level2:
+      partition_cols: ["product_id", "date"]
+      processor_options:
+        add_derived_fields: true
+    
+    market_trades:
+      partition_cols: ["product_id", "date"]
+      processor_options:
+        add_derived_fields: true
+    
+    ticker:
+      partition_cols: ["date", "hour"]
+      processor_options:
+        add_derived_fields: true
+
+log_level: "INFO"
+
+# Result structure:
+# F:/raw/active/coinbase/segment_*.ndjson
+# F:/raw/ready/coinbase/segment_*.ndjson
+# F:/processed/coinbase/ticker/*.parquet
+
+
+# =============================================================================
+# EXAMPLE 2: ALL-S3 STORAGE (Production Cloud)
+# =============================================================================
+# Use this for cloud deployments where all data lives in S3.
+# Ingestion and ETL both write to S3.
+
+---
+storage:
+  backend: "s3"
+  base_dir: "my-datalake-bucket"  # S3 bucket name
+  
+  paths:
+    raw_dir: "raw"
+    active_subdir: "active"
+    ready_subdir: "ready"
+    processing_subdir: "processing"
+    processed_dir: "processed"
+  
+  s3:
+    bucket: "my-datalake-bucket"  # Must match base_dir
+    region: "us-east-1"
+    
+    # Option 1: Use environment/IAM role (recommended)
+    aws_access_key_id: null
+    aws_secret_access_key: null
+    
+    # Option 2: Explicit credentials (for testing)
+    # aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
+    # aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+coinbase:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  product_ids: ["BTC-USD", "ETH-USD"]
+  channels: ["ticker", "level2", "market_trades"]
+
+ingestion:
+  batch_size: 100
+  segment_max_mb: 100
+
+etl:
+  compression: "snappy"
+  delete_after_processing: true
+  
+  channels:
+    level2:
+      partition_cols: ["product_id", "date"]
+      processor_options:
+        add_derived_fields: true
+
+log_level: "INFO"
+
+# Result structure:
+# s3://my-datalake-bucket/raw/active/coinbase/segment_*.ndjson
+# s3://my-datalake-bucket/raw/ready/coinbase/segment_*.ndjson
+# s3://my-datalake-bucket/processed/coinbase/ticker/*.parquet
+
+
+# =============================================================================
+# EXAMPLE 3: CUSTOM PATH STRUCTURE
+# =============================================================================
+# Customize directory names to match your organization's standards.
+
+---
+storage:
+  backend: "local"
+  base_dir: "./data"
+  
+  paths:
+    raw_dir: "ingested"           # Instead of "raw"
+    active_subdir: "streaming"     # Instead of "active"
+    ready_subdir: "completed"      # Instead of "ready"
+    processing_subdir: "transforming"
+    processed_dir: "curated"       # Instead of "processed"
+
+coinbase:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  product_ids: ["BTC-USD"]
+  channels: ["ticker"]
+
+ingestion:
+  batch_size: 50
+  segment_max_mb: 50
+
+etl:
+  compression: "zstd"  # Use zstd instead of snappy
+  delete_after_processing: false  # Keep raw data
+  
+  channels:
+    ticker:
+      partition_cols: ["product_id", "date", "hour"]
+      processor_options:
+        add_derived_fields: true
+
+log_level: "DEBUG"
+
+# Result structure:
+# ./data/ingested/streaming/coinbase/segment_*.ndjson
+# ./data/ingested/completed/coinbase/segment_*.ndjson
+# ./data/curated/coinbase/ticker/*.parquet
+
+
+# =============================================================================
+# EXAMPLE 4: MULTI-PRODUCT CONFIGURATION
+# =============================================================================
+# Track many products with optimized partitioning.
+
+---
+storage:
+  backend: "s3"
+  base_dir: "crypto-market-data"
+  
+  paths:
+    raw_dir: "raw"
+    active_subdir: "active"
+    ready_subdir: "ready"
+    processing_subdir: "processing"
+    processed_dir: "processed"
+  
+  s3:
+    bucket: "crypto-market-data"
+    region: "us-west-2"
+    aws_access_key_id: null
+    aws_secret_access_key: null
+
+coinbase:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  product_ids:
+    - "BTC-USD"
+    - "ETH-USD"
+    - "SOL-USD"
+    - "AVAX-USD"
+    - "LINK-USD"
+    - "UNI-USD"
+    # ... up to 100 products
+  channels: ["ticker", "level2", "market_trades"]
+  level2_batch_size: 10  # Coinbase limit per subscription
+
+ingestion:
+  batch_size: 200  # Larger batches for high throughput
+  flush_interval_seconds: 3.0
+  segment_max_mb: 200  # Larger segments
+
+etl:
+  compression: "snappy"
+  delete_after_processing: true
+  
+  channels:
+    level2:
+      partition_cols: ["product_id", "date"]  # Efficient querying by product
+      processor_options:
+        add_derived_fields: true
+        reconstruct_lob: false  # Expensive, disable for production
+        compute_features: false
+    
+    market_trades:
+      partition_cols: ["product_id", "date"]
+      processor_options:
+        add_derived_fields: true
+    
+    ticker:
+      partition_cols: ["date", "hour"]  # Group all products by time
+      processor_options:
+        add_derived_fields: true
+
+log_level: "INFO"
+
+
+# =============================================================================
+# EXAMPLE 5: MINIMAL CONFIGURATION
+# =============================================================================
+# Bare minimum for getting started quickly.
+
+---
+storage:
+  backend: "local"
+  base_dir: "./data"
+
+coinbase:
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  product_ids: ["BTC-USD"]
+  channels: ["ticker"]
+
+# All other settings use defaults from config.py
+
+
+# =============================================================================
+# NOTES ON CONFIGURATION
+# =============================================================================
+
+# 1. Storage Backend Selection:
+#    - backend: "local" → Uses local filesystem (Path-based)
+#    - backend: "s3" → Uses AWS S3 (boto3 + s3fs)
+
+# 2. Path Resolution:
+#    All paths are relative to base_dir (local) or bucket (S3).
+#    Example: raw/active/coinbase → F:/raw/active/coinbase (local)
+#                                 → s3://bucket/raw/active/coinbase (S3)
+
+# 3. AWS Credentials (for S3):
+#    Priority order:
+#    a) Explicit in config (aws_access_key_id, aws_secret_access_key)
+#    b) Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+#    c) AWS credentials file (~/.aws/credentials)
+#    d) IAM role (EC2/ECS/Lambda)
+
+# 4. Switching Backends:
+#    Just change storage.backend: "local" to "s3" (or vice versa).
+#    No code changes needed!
+
+# 5. Compression Options:
+#    - snappy: Fast, moderate compression (default)
+#    - gzip: Slower, better compression
+#    - zstd: Best of both worlds (requires pyarrow with zstd)
+
+# 6. Partition Strategy:
+#    - level2/market_trades: Partition by product_id + date
+#      → Efficient for per-product queries
+#    - ticker: Partition by date + hour
+#      → Efficient for time-based queries across all products
+
+# 7. Performance Tuning:
+#    - batch_size: Higher = fewer writes, more memory
+#    - segment_max_mb: Larger segments = fewer files, longer ETL latency
+#    - flush_interval_seconds: Lower = more real-time, higher I/O
+
+# 8. Processing Flow:
+#    WebSocket → LogWriter → {active_subdir}/{source}/segment_*.ndjson
+#                          → (rotation) → {ready_subdir}/{source}/segment_*.ndjson
+#                          → ETL → {processed_dir}/{source}/{channel}/*.parquet
