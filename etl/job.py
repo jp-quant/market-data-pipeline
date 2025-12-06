@@ -251,12 +251,19 @@ class ETLJob:
         if end_date is None:
             end_date = start_date
         
-        if not self.input_dir.exists():
-            logger.error(f"[ETLJob] Input directory not found: {self.input_dir}")
+        # List all segments from input storage
+        try:
+            files = self.storage_input.list_files(path=self.input_path, pattern="segment_*.ndjson")
+        except Exception as e:
+            logger.error(f"[ETLJob] Failed to list segments: {e}")
             return
         
-        # Find all segments
-        all_segments = sorted(self.input_dir.glob("segment_*.ndjson"))
+        if not files:
+            logger.info(f"[ETLJob] No segments found in {self.input_path}")
+            return
+        
+        # Sort files by path
+        all_segments = sorted([Path(f["path"]) for f in files])
         
         # Filter by date range
         segments_to_process = []

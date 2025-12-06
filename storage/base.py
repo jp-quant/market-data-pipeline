@@ -7,7 +7,7 @@ All paths are relative to the storage root (local base_dir or S3 bucket).
 import io
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional, List, Dict, Any, Union
 
 logger = logging.getLogger(__name__)
@@ -352,6 +352,8 @@ class S3Storage(StorageBackend):
     
     def _get_s3_key(self, path: str) -> str:
         """Convert relative path to S3 key."""
+        # Normalize path separators (handle Windows paths)
+        path = str(path).replace("\\", "/")
         return path.lstrip("/")
     
     def write_bytes(self, data: bytes, path: str) -> str:
@@ -422,29 +424,44 @@ class S3Storage(StorageBackend):
         pattern: Optional[str] = None,
         recursive: bool = False
     ) -> List[Dict[str, Any]]:
+        # Smart recursion detection
+        if pattern and "**" in pattern:
+            recursive = True
+
         prefix = self._get_s3_key(path)
         if prefix and not prefix.endswith("/"):
             prefix += "/"
         
-        delimiter = None if recursive else "/"
+        # For recursive listing in S3, Delimiter should be None (or omitted)
+        # For non-recursive, use "/" to emulate directory listing
+        delimiter = "" if recursive else "/"
         
         result = []
         paginator = self.s3_client.get_paginator("list_objects_v2")
         
+        pagination_kwargs = {
+            "Bucket": self.bucket,
+            "Prefix": prefix,
+        }
+        if not recursive:
+            pagination_kwargs["Delimiter"] = delimiter
+
         try:
-            for page in paginator.paginate(
-                Bucket=self.bucket,
-                Prefix=prefix,
-                Delimiter=delimiter
-            ):
+            for page in paginator.paginate(**pagination_kwargs):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
                     
-                    # Apply pattern filter if provided (match against filename only)
+                    # Skip the directory itself if it appears in contents
+                    if key == prefix:
+                        continue
+
+                    # Apply pattern filter
                     if pattern:
-                        import fnmatch
-                        filename = key.split("/")[-1]
-                        if not fnmatch.fnmatch(filename, pattern):
+                        # Get path relative to the search prefix for matching
+                        rel_path = key[len(prefix):] if key.startswith(prefix) else key
+                        
+                        # Use PurePosixPath match which handles ** and glob patterns correctly
+                        if not PurePosixPath(rel_path).match(pattern):
                             continue
                     
                     result.append({

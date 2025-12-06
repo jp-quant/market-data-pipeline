@@ -1,5 +1,11 @@
 # FluxForge Requirements
+
+
 # Core dependencies
+
+# Crypto Trading Specifics
+ccxt
+vectorbt
 
 # WebSocket and async HTTP
 websockets

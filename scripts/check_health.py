@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import load_config
+from storage.factory import create_ingestion_storage, get_ingestion_path
 
 
 def check_health(config_path: str = None):
@@ -17,77 +18,90 @@ def check_health(config_path: str = None):
     print("FluxForge Health Check")
     print("=" * 80)
     
-    # Check directories
-    base_dir = Path(config.ingestion.output_dir)
+    # Create storage backend
+    storage = create_ingestion_storage(config)
+    print(f"Storage backend: {storage.backend_type}")
+    print(f"Base path: {storage.base_path}")
+    print()
     
     for source in ["coinbase"]:  # Add more sources as configured
         print(f"\n📊 Source: {source}")
         print("-" * 80)
         
-        active_dir = base_dir / "active" / source
-        ready_dir = base_dir / "ready" / source
-        processing_dir = Path(config.etl.processing_dir) / source
+        # Get paths using storage abstraction
+        active_path = get_ingestion_path(config, source, state="active")
+        ready_path = get_ingestion_path(config, source, state="ready")
+        
+        # Import processing path helper
+        from storage.factory import get_processing_path
+        processing_path = get_processing_path(config, source)
         
         # Check active segments
-        if active_dir.exists():
-            active_segments = list(active_dir.glob("segment_*.ndjson"))
-            print(f"✓ Active directory: {active_dir}")
-            print(f"  Segments: {len(active_segments)}")
+        try:
+            active_files = storage.list_files(active_path, pattern="segment_*.ndjson")
+            print(f"✓ Active path: {active_path}")
+            print(f"  Full path: {storage.get_full_path(active_path)}")
+            print(f"  Segments: {len(active_files)}")
             
-            if active_segments:
-                for seg in active_segments:
-                    size_mb = seg.stat().st_size / 1024 / 1024
-                    age_sec = (datetime.now().timestamp() - seg.stat().st_mtime)
+            if active_files:
+                for file_info in active_files:
+                    size_mb = file_info["size"] / 1024 / 1024
+                    age_sec = datetime.now().timestamp() - file_info["modified"]
                     age_min = int(age_sec / 60)
-                    print(f"  - {seg.name}: {size_mb:.2f} MB (age: {age_min} min)")
+                    filename = file_info["path"].split("/")[-1]
+                    print(f"  - {filename}: {size_mb:.2f} MB (age: {age_min} min)")
                     
                     if size_mb > config.ingestion.segment_max_mb * 0.9:
                         print(f"    ⚠️  Near rotation threshold!")
-        else:
-            print(f"❌ Active directory missing: {active_dir}")
+        except Exception as e:
+            print(f"❌ Error checking active path: {e}")
         
         # Check ready segments
-        if ready_dir.exists():
-            ready_segments = list(ready_dir.glob("segment_*.ndjson"))
-            print(f"\n✓ Ready directory: {ready_dir}")
-            print(f"  Segments: {len(ready_segments)}")
+        try:
+            ready_files = storage.list_files(ready_path, pattern="segment_*.ndjson")
+            print(f"\n✓ Ready path: {ready_path}")
+            print(f"  Full path: {storage.get_full_path(ready_path)}")
+            print(f"  Segments: {len(ready_files)}")
             
-            if ready_segments:
-                total_size_mb = sum(s.stat().st_size for s in ready_segments) / 1024 / 1024
-                oldest = min(ready_segments, key=lambda s: s.stat().st_mtime)
-                oldest_age_sec = datetime.now().timestamp() - oldest.stat().st_mtime
+            if ready_files:
+                total_size_mb = sum(f["size"] for f in ready_files) / 1024 / 1024
+                oldest = min(ready_files, key=lambda f: f["modified"])
+                oldest_age_sec = datetime.now().timestamp() - oldest["modified"]
                 oldest_age_min = int(oldest_age_sec / 60)
+                oldest_name = oldest["path"].split("/")[-1]
                 
                 print(f"  Total size: {total_size_mb:.2f} MB")
-                print(f"  Oldest: {oldest.name} ({oldest_age_min} min ago)")
+                print(f"  Oldest: {oldest_name} ({oldest_age_min} min ago)")
                 
-                if len(ready_segments) > 50:
+                if len(ready_files) > 50:
                     print(f"  ⚠️  Large backlog - ETL falling behind!")
-                elif len(ready_segments) > 20:
+                elif len(ready_files) > 20:
                     print(f"  ⚡ Moderate backlog - consider faster ETL")
             else:
                 print(f"  ✓ No backlog - ETL is caught up")
-        else:
-            print(f"❌ Ready directory missing: {ready_dir}")
+        except Exception as e:
+            print(f"❌ Error checking ready path: {e}")
         
         # Check processing segments
-        if processing_dir.exists():
-            processing_segments = list(processing_dir.glob("segment_*.ndjson"))
-            print(f"\n✓ Processing directory: {processing_dir}")
+        try:
+            processing_files = storage.list_files(processing_path, pattern="segment_*.ndjson")
+            print(f"\n✓ Processing path: {processing_path}")
+            print(f"  Full path: {storage.get_full_path(processing_path)}")
             
-            if processing_segments:
-                print(f"  Segments: {len(processing_segments)}")
-                for seg in processing_segments:
-                    age_sec = datetime.now().timestamp() - seg.stat().st_mtime
+            if processing_files:
+                print(f"  Segments: {len(processing_files)}")
+                for file_info in processing_files:
+                    age_sec = datetime.now().timestamp() - file_info["modified"]
                     age_min = int(age_sec / 60)
-                    print(f"  - {seg.name} (age: {age_min} min)")
+                    filename = file_info["path"].split("/")[-1]
+                    print(f"  - {filename} (age: {age_min} min)")
                     
                     if age_min > 10:
                         print(f"    ⚠️  Stuck in processing? ETL may have crashed")
             else:
                 print(f"  ✓ No segments in processing")
-        else:
-            print(f"❌ Processing directory missing: {processing_dir}")
+        except Exception as e:
+            print(f"❌ Error checking processing path: {e}")
     
     # Configuration check
     print(f"\n⚙️  Configuration")
@@ -101,9 +115,10 @@ def check_health(config_path: str = None):
     print(f"\n💡 Recommendations")
     print("-" * 80)
     
-    ready_dir = base_dir / "ready" / "coinbase"
-    if ready_dir.exists():
-        ready_count = len(list(ready_dir.glob("segment_*.ndjson")))
+    try:
+        ready_path = get_ingestion_path(config, "coinbase", state="ready")
+        ready_files = storage.list_files(ready_path, pattern="segment_*.ndjson")
+        ready_count = len(ready_files)
         
         if ready_count == 0:
             print("✓ System healthy - no backlog")
@@ -118,6 +133,8 @@ def check_health(config_path: str = None):
             print("     python scripts/run_etl_watcher.py --poll-interval 10")
             print("  2. Or manually process backlog:")
             print("     python scripts/run_etl.py --source coinbase --mode all")
+    except Exception as e:
+        print(f"⚠️  Could not check backlog: {e}")
     
     print("\n" + "=" * 80)
 

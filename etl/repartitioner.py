@@ -790,6 +790,8 @@ class ParquetCompactor:
         self,
         min_file_count: int = 2,
         max_file_size_mb: Optional[int] = None,
+        target_file_count: Optional[int] = None,
+        sort_by: Optional[List[str]] = None,
         delete_source_files: bool = True,
         dry_run: bool = False,
     ) -> Dict[str, Any]:
@@ -799,19 +801,30 @@ class ParquetCompactor:
         Args:
             min_file_count: Minimum files in partition to trigger compaction
             max_file_size_mb: Only compact files smaller than this (None = all files)
+            target_file_count: Force specific number of output files (overrides target_size calculation)
+            sort_by: Optional list of columns to sort data by before writing
             delete_source_files: Delete original files after compaction
             dry_run: Print plan without executing
         
         Returns:
             Statistics dictionary
         """
+        import math
         self.stats["start_time"] = datetime.now()
         
         logger.info("=" * 80)
         logger.info("PARQUET COMPACTION OPERATION")
         logger.info("=" * 80)
         logger.info(f"  Min files for compaction: {min_file_count}")
-        logger.info(f"  Target file size: {self.target_file_size_mb} MB")
+        if target_file_count:
+            logger.info(f"  Target file count: {target_file_count} (Fixed)")
+        else:
+            logger.info(f"  Target file size: {self.target_file_size_mb} MB (Dynamic count)")
+        
+        if sort_by:
+            if isinstance(sort_by, str):
+                sort_by = [sort_by]
+            logger.info(f"  Sorting by: {sort_by}")
         
         # Find all leaf partitions (directories with .parquet files)
         leaf_partitions = []
@@ -843,42 +856,87 @@ class ParquetCompactor:
             # Calculate total size
             total_size_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
             
+            # Determine output file count
+            if target_file_count is not None:
+                num_output_files = target_file_count
+            else:
+                # Calculate based on target size (default 100MB)
+                # Example: 510MB / 50MB = 10.2 -> 11 files
+                num_output_files = math.ceil(total_size_mb / self.target_file_size_mb)
+                num_output_files = max(1, num_output_files)
+
             logger.info(
                 f"\n  Compacting partition: {partition_dir.relative_to(self.dataset_dir)}"
             )
             logger.info(f"    Files: {len(files)}, Total size: {total_size_mb:.1f} MB")
+            logger.info(f"    Target: {num_output_files} file(s)")
             
             if dry_run:
-                logger.info(f"    DRY RUN - Would compact {len(files)} files")
+                logger.info(f"    DRY RUN - Would compact {len(files)} files into {num_output_files}")
                 continue
             
             try:
                 # Read all files
                 df = pl.read_parquet(files)
+                total_rows = len(df)
                 
-                # Write compacted file with unique filename
-                timestamp = datetime.now().strftime("%Y%m%dT%H")
-                unique_id = str(uuid.uuid4())[:8]
-                output_file = partition_dir / f"part_{timestamp}_{unique_id}.parquet"
-                df.write_parquet(
-                    output_file,
-                    compression=self.compression,
-                )
+                # Sort if requested
+                if sort_by:
+                    missing_cols = set(sort_by) - set(df.columns)
+                    if missing_cols:
+                        logger.warning(f"    ⚠️ Cannot sort by {sort_by}: columns {missing_cols} missing. Skipping sort.")
+                    else:
+                        logger.info(f"    Sorting data by {sort_by}...")
+                        df = df.sort(sort_by)
                 
+                # Determine how to write output
+                if num_output_files <= 1:
+                    # Single file output
+                    timestamp = datetime.now().strftime("%Y%m%dT%H")
+                    unique_id = str(uuid.uuid4())[:8]
+                    output_file = partition_dir / f"part_{timestamp}_{unique_id}.parquet"
+                    
+                    df.write_parquet(
+                        output_file,
+                        compression=self.compression,
+                    )
+                    
+                    self.stats["files_after"] += 1
+                    self.stats["bytes_after"] += output_file.stat().st_size
+                    logger.info(f"    ✓ Compacted to {output_file.name}")
+                    
+                else:
+                    # Multiple file output
+                    rows_per_file = math.ceil(total_rows / num_output_files)
+                    logger.info(f"    Splitting {total_rows:,} rows into {num_output_files} files (~{rows_per_file:,} rows/file)")
+                    
+                    for i, chunk_df in enumerate(df.iter_slices(rows_per_file)):
+                        timestamp = datetime.now().strftime("%Y%m%dT%H")
+                        unique_id = str(uuid.uuid4())[:8]
+                        output_file = partition_dir / f"part_{timestamp}_{unique_id}_{i+1}.parquet"
+                        
+                        chunk_df.write_parquet(
+                            output_file,
+                            compression=self.compression,
+                        )
+                        
+                        self.stats["files_after"] += 1
+                        self.stats["bytes_after"] += output_file.stat().st_size
+                    
+                    logger.info(f"    ✓ Compacted to {num_output_files} files")
+
                 # Update stats
                 self.stats["files_before"] += len(files)
-                self.stats["files_after"] += 1
                 self.stats["bytes_before"] += sum(f.stat().st_size for f in files)
-                self.stats["bytes_after"] += output_file.stat().st_size
                 self.stats["partitions_compacted"] += 1
                 
                 # Delete source files
                 if delete_source_files:
                     for f in files:
                         f.unlink()
-                    logger.info(f"    ✓ Compacted to {output_file.name} ({len(files)} files deleted)")
+                    logger.info(f"    ✓ Deleted {len(files)} source files")
                 else:
-                    logger.info(f"    ✓ Compacted to {output_file.name} (original files kept)")
+                    logger.info(f"    ✓ Kept original files")
             
             except Exception as e:
                 logger.error(f"    ✗ Error compacting partition: {e}")

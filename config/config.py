@@ -13,6 +13,7 @@ class CoinbaseConfig(BaseModel):
     product_ids: list[str] = Field(default_factory=lambda: ["BTC-USD", "ETH-USD"])
     channels: list[str] = Field(default_factory=lambda: ["ticker", "level2", "market_trades"])
     ws_url: str = "wss://advanced-trade-ws.coinbase.com"
+    level2_batch_size: int = Field(default=10, description="Max products per level2 subscription (Coinbase limit)")
 
 
 class DatabentoConfig(BaseModel):

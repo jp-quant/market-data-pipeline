@@ -288,6 +288,7 @@ def example_compact_fragmented_files():
     stats = compactor.compact(
         min_file_count=5,          # Only compact partitions with 5+ files
         max_file_size_mb=20,       # Only consolidate files < 20MB
+        target_file_count=1,       # Consolidate to exactly 1 file per partition
         delete_source_files=True,  # Delete original files after compaction
         dry_run=False,
     )

@@ -30,7 +30,7 @@ FluxForge is a production-grade data ingestion engine that "forges" raw market f
 pip install -r requirements.txt
 
 # 2. Configure (copy example and edit with your credentials)
-cp config/secrets.example.yaml config/config.yaml
+cp config/config.examples.yaml config/config.yaml
 # Edit config/config.yaml with your API credentials
 
 # 3. Start ingestion (collects real-time data)
@@ -301,7 +301,7 @@ pip install -e .
 ### 1. Create config file
 
 ```bash
-cp config/secrets.example.yaml config/config.yaml
+cp config/config.examples.yaml config/config.yaml
 ```
 
 ### 2. Edit `config/config.yaml`
@@ -500,7 +500,7 @@ FluxForge/
 ├── config/                 # Configuration
 │   ├── config.py           # Pydantic models
 │   ├── config.yaml         # Your config (gitignored)
-│   └── secrets.example.yaml
+│   └── config.examples.yaml
 │
 ├── scripts/                # Entry points
 │   ├── run_ingestion.py    # Start ingestion

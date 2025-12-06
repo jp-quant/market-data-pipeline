@@ -46,9 +46,11 @@ class CoinbaseParser:
             channel = data.get("channel", "unknown")
             
             # Route to channel-specific parser
-            # Note: Coinbase uses different channel names in responses vs subscription:
-            # - level2 (subscribe) → l2_data (response)
-            # - ticker (subscribe) → ticker (response)
+            # IMPORTANT: Coinbase uses different channel names in responses vs subscription:
+            # - Subscription: "level2" → Response: "l2_data"
+            # - Subscription: "ticker" → Response: "ticker" (same)
+            # - Subscription: "market_trades" → Response: "market_trades" (same)
+            # We normalize "l2_data" back to "level2" for consistency in output
             if channel == "ticker":
                 return self._parse_ticker(data, capture_ts, metadata)
             elif channel in ("level2", "l2_data"):  # l2_data is actual response name
