@@ -12,6 +12,7 @@ from storage.base import StorageBackend
 from storage.factory import create_ingestion_storage, get_ingestion_path
 from ingestion.writers.log_writer import LogWriter
 from ingestion.collectors.coinbase_ws import CoinbaseCollector
+from ingestion.collectors.ccxt_collector import CcxtCollector
 # from ingestion.collectors.databento_ws import DatabentoCollector
 # from ingestion.collectors.ibkr_ws import IBKRCollector
 
@@ -37,14 +38,17 @@ class IngestionPipeline:
         await pipeline.stop()
     """
     
-    def __init__(self, config: FluxForgeConfig):
+    def __init__(self, config: FluxForgeConfig, sources: Optional[List[str]] = None):
         """
         Initialize ingestion pipeline.
         
         Args:
             config: FluxForge configuration
+            sources: Optional list of sources to enable (e.g. ["coinbase", "ccxt"]).
+                     If None, all configured sources are enabled.
         """
         self.config = config
+        self.enabled_sources = sources
         
         # Initialize storage backend for ingestion
         self.storage = create_ingestion_storage(config)
@@ -60,14 +64,26 @@ class IngestionPipeline:
         """Start all configured collectors."""
         logger.info("=" * 80)
         logger.info("FluxForge Ingestion Pipeline Starting")
+        if self.enabled_sources:
+            logger.info(f"Enabled sources: {self.enabled_sources}")
         logger.info("=" * 80)
         
+        # Helper to check if source should run
+        def should_run(source_name):
+            if self.enabled_sources is None:
+                return True
+            return source_name in self.enabled_sources
+
         # Start Coinbase if configured
-        if self.config.coinbase and self.config.coinbase.api_key:
+        if should_run("coinbase") and self.config.coinbase and self.config.coinbase.api_key:
             await self._start_coinbase()
         
+        # Start CCXT if configured
+        if should_run("ccxt") and self.config.ccxt and self.config.ccxt.exchanges:
+            await self._start_ccxt()
+        
         # Start Databento if configured (placeholder)
-        # if self.config.databento and self.config.databento.api_key:
+        # if should_run("databento") and self.config.databento and self.config.databento.api_key:
         #     await self._start_databento()
         
         # Start IBKR if configured (placeholder)
@@ -123,6 +139,58 @@ class IngestionPipeline:
         logger.info(f"  Active: {active_path}")
         logger.info(f"  Ready:  {ready_path}")
     
+    async def _start_ccxt(self):
+        """Start CCXT collectors for all configured exchanges."""
+        logger.info("Initializing CCXT collectors...")
+        
+        for exchange_id, exchange_config in self.config.ccxt.exchanges.items():
+            try:
+                logger.info(f"Starting CCXT collector for {exchange_id}...")
+                
+                source_name = f"ccxt_{exchange_id}"
+                
+                # Get paths for this source
+                active_path = get_ingestion_path(self.config, source_name, state="active")
+                ready_path = get_ingestion_path(self.config, source_name, state="ready")
+                
+                # Create log writer
+                ccxt_writer = LogWriter(
+                    storage=self.storage,
+                    active_path=active_path,
+                    ready_path=ready_path,
+                    source_name=source_name,
+                    batch_size=self.config.ingestion.batch_size,
+                    flush_interval_seconds=self.config.ingestion.flush_interval_seconds,
+                    queue_maxsize=self.config.ingestion.queue_maxsize,
+                    enable_fsync=self.config.ingestion.enable_fsync,
+                    segment_max_mb=self.config.ingestion.segment_max_mb,
+                )
+                await ccxt_writer.start()
+                self.writers[source_name] = ccxt_writer
+                
+                # Create collector
+                ccxt_collector = CcxtCollector(
+                    log_writer=ccxt_writer,
+                    exchange_id=exchange_id,
+                    channels=exchange_config.channels,
+                    api_key=exchange_config.api_key,
+                    api_secret=exchange_config.api_secret,
+                    password=exchange_config.password,
+                    options=exchange_config.options,
+                    auto_reconnect=self.config.ingestion.auto_reconnect,
+                    max_reconnect_attempts=self.config.ingestion.max_reconnect_attempts,
+                    reconnect_delay=self.config.ingestion.reconnect_delay,
+                )
+                await ccxt_collector.start()
+                self.collectors.append(ccxt_collector)
+                
+                logger.info(f"✓ CCXT collector started for {exchange_id}")
+                logger.info(f"  Active: {active_path}")
+                logger.info(f"  Ready:  {ready_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to start CCXT collector for {exchange_id}: {e}")
+
     async def _start_databento(self):
         """Start Databento collector and writer (placeholder)."""
         logger.info("Databento collector not yet implemented")

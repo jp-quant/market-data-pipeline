@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List, Union
 
 from .base_processor import BaseProcessor
 from etl.parsers.coinbase_parser import CoinbaseParser
+from etl.parsers.ccxt_parser import CcxtParser
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ class RawParser(BaseProcessor):
         # Initialize source-specific parser
         if source == "coinbase":
             self.parser = CoinbaseParser()
+        elif source == "ccxt":
+            self.parser = CcxtParser()
         else:
             raise ValueError(f"Unsupported source: {source}")
         

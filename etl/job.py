@@ -7,6 +7,7 @@ from datetime import datetime
 
 from storage.base import StorageBackend
 from etl.orchestrators.coinbase_segment_pipeline import CoinbaseSegmentPipeline
+from etl.orchestrators.ccxt_segment_pipeline import CcxtSegmentPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +34,20 @@ class ETLJob:
         storage_output: StorageBackend,
         input_path: str,
         output_path: str,
+        source: str = "coinbase",
         delete_after_processing: bool = True,
         processing_path: Optional[str] = None,
         channel_config: Optional[dict] = None,
     ):
         """
-        Initialize Coinbase ETL job.
+        Initialize ETL job.
         
         Args:
             storage_input: Storage backend for reading raw data
             storage_output: Storage backend for writing processed data
             input_path: Path containing ready NDJSON segments (relative to storage_input root)
             output_path: Path for Parquet output (relative to storage_output root)
+            source: Data source (coinbase, ccxt, etc.)
             delete_after_processing: Delete raw segments after successful ETL
             processing_path: Temp path during processing (relative to storage_input root)
             channel_config: Channel-specific configuration for pipelines
@@ -53,7 +56,7 @@ class ETLJob:
         self.storage_output = storage_output
         self.input_path = input_path
         self.output_path = output_path
-        self.source = "coinbase"
+        self.source = source
         self.delete_after_processing = delete_after_processing
         
         # Processing path (for atomic move) - always on input storage
@@ -64,21 +67,30 @@ class ETLJob:
             self.processing_path = storage_input.join_path(
                 str(Path(input_path).parent),
                 "processing",
-                "coinbase"
+                source
             )
         
         # Ensure processing directory exists
         self.storage_input.mkdir(self.processing_path)
         
-        # Initialize Coinbase segment pipeline (uses output storage)
-        self.pipeline = CoinbaseSegmentPipeline(
-            storage=storage_output,
-            output_base_path=output_path,
-            channel_config=channel_config,
-        )
+        # Initialize pipeline based on source
+        if source == "coinbase":
+            self.pipeline = CoinbaseSegmentPipeline(
+                storage=storage_output,
+                output_base_path=output_path,
+                channel_config=channel_config,
+            )
+        elif source == "ccxt":
+            self.pipeline = CcxtSegmentPipeline(
+                storage=storage_output,
+                output_base_path=output_path,
+                channel_config=channel_config,
+            )
+        else:
+            raise ValueError(f"Unsupported source: {source}")
         
         logger.info(
-            f"[ETLJob] Initialized Coinbase ETL: "
+            f"[ETLJob] Initialized {source} ETL: "
             f"input_storage={storage_input.backend_type}, "
             f"output_storage={storage_output.backend_type}, "
             f"input={input_path}, output={output_path}, "

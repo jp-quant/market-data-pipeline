@@ -50,6 +50,21 @@ coinbase:
   ws_url: "wss://advanced-trade-ws.coinbase.com"
   level2_batch_size: 10
 
+ccxt:
+  exchanges:
+    binance:
+      api_key: ""
+      api_secret: ""
+      channels:
+        watchTicker: ["BTC/USDT", "ETH/USDT"]
+        watchTrades: ["BTC/USDT"]
+    okex:
+      api_key: ""
+      api_secret: ""
+      password: ""
+      channels:
+        watchOrderBook: ["BTC/USDT"]
+
 databento:
   api_key: "your-databento-key"
   dataset: "XNAS.ITCH"

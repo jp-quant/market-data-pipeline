@@ -31,6 +31,23 @@ class IBKRConfig(BaseModel):
     contracts: list[dict] = Field(default_factory=list)
 
 
+class CcxtExchangeConfig(BaseModel):
+    """Configuration for a single CCXT exchange."""
+    api_key: str = ""
+    api_secret: str = ""
+    password: str = ""
+    # Map of method name (e.g. watchTicker) to list of symbols
+    channels: Dict[str, list[str]] = Field(default_factory=dict)
+    # Extra ccxt config options
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CcxtConfig(BaseModel):
+    """CCXT configuration."""
+    # Map of exchange_id to its config
+    exchanges: Dict[str, CcxtExchangeConfig] = Field(default_factory=dict)
+
+
 class S3Config(BaseModel):
     """S3-specific configuration."""
     bucket: str = ""
@@ -140,6 +157,7 @@ class FluxForgeConfig(BaseModel):
     coinbase: Optional[CoinbaseConfig] = None
     databento: Optional[DatabentoConfig] = None
     ibkr: Optional[IBKRConfig] = None
+    ccxt: Optional[CcxtConfig] = None
     
     # Storage backend
     storage: StorageConfig = Field(default_factory=StorageConfig)

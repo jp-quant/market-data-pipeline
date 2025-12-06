@@ -39,7 +39,7 @@ def main():
         "--source",
         type=str,
         default="coinbase",
-        choices=["coinbase", "databento", "ibkr"],
+        choices=["coinbase", "databento", "ibkr", "ccxt"],
         help="Data source to process (default: coinbase)"
     )
     parser.add_argument(
@@ -115,6 +115,7 @@ def main():
         storage_output=storage_output,
         input_path=input_path,
         output_path=output_path,
+        source=args.source,
         delete_after_processing=config.etl.delete_after_processing,
         processing_path=processing_path,
         channel_config=channel_config,

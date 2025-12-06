@@ -1,0 +1,133 @@
+"""CCXT NDJSON parser - extracts and validates CCXT market data."""
+import logging
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class CcxtParser:
+    """
+    Parse CCXT messages from NDJSON logs.
+    
+    Handles multiple message types:
+    - ticker: Ticker updates
+    - orderbook: Order book snapshots (if implemented)
+    - trade: Trade executions (if implemented)
+    """
+    
+    def __init__(self):
+        self.stats = {
+            "parsed": 0,
+            "errors": 0,
+            "by_type": {},
+        }
+    
+    def parse_record(self, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Parse a single NDJSON record.
+        
+        Args:
+            record: Deserialized NDJSON record
+            
+        Returns:
+            Parsed and normalized record, or None if parsing fails
+        """
+        try:
+            msg_type = record.get("type")
+            exchange = record.get("exchange")
+            symbol = record.get("symbol")
+            data = record.get("data")
+            collected_at = record.get("collected_at")
+            
+            if not msg_type or not data:
+                return None
+            
+            # Update stats
+            self.stats["by_type"][msg_type] = self.stats["by_type"].get(msg_type, 0) + 1
+            
+            # Route to type-specific parser
+            if msg_type == "ticker":
+                parsed = self._parse_ticker(data, exchange, symbol, collected_at)
+            elif msg_type == "trades":
+                # watchTrades returns a list of trades
+                # We need to return a list of parsed records, but parse_record returns a single dict
+                # This interface might need adjustment or we handle it by returning a list
+                # For now, let's assume the caller can handle a list if we change the signature
+                # But BaseProcessor expects a dict or list.
+                # Wait, RawParser calls parse_record.
+                # Let's see RawParser.
+                return self._parse_trades(data, exchange, symbol, collected_at)
+            else:
+                # Unknown type
+                return None
+                
+            if parsed:
+                self.stats["parsed"] += 1
+                return parsed
+            else:
+                self.stats["errors"] += 1
+                return None
+                
+        except Exception as e:
+            self.stats["errors"] += 1
+            # logger.debug(f"Error parsing record: {e}")
+            return None
+
+    def _parse_trades(self, data: Any, exchange: str, symbol: str, collected_at: int) -> List[Dict[str, Any]]:
+        """Parse CCXT trades data (list of trades)."""
+        if not isinstance(data, list):
+            # Sometimes it might be a single dict?
+            if isinstance(data, dict):
+                data = [data]
+            else:
+                return []
+        
+        parsed_trades = []
+        for trade in data:
+            parsed_trades.append({
+                "channel": "trades",
+                "exchange": exchange,
+                "symbol": symbol,
+                "trade_id": trade.get("id"),
+                "timestamp": trade.get("timestamp"),
+                "datetime": trade.get("datetime"),
+                "symbol_ccxt": trade.get("symbol"),
+                "order_id": trade.get("order"),
+                "type": trade.get("type"),
+                "side": trade.get("side"),
+                "price": trade.get("price"),
+                "amount": trade.get("amount"),
+                "cost": trade.get("cost"),
+                "takerOrMaker": trade.get("takerOrMaker"),
+                "collected_at": collected_at
+            })
+        return parsed_trades
+
+    def _parse_ticker(self, data: Dict[str, Any], exchange: str, symbol: str, collected_at: int) -> Dict[str, Any]:
+        """Parse CCXT ticker data."""
+        # CCXT ticker structure is standard
+        # We flatten it for easier Parquet storage
+        return {
+            "channel": "ticker",
+            "exchange": exchange,
+            "symbol": symbol,
+            "timestamp": data.get("timestamp"),  # Exchange timestamp (ms)
+            "datetime": data.get("datetime"),    # ISO8601 string
+            "high": data.get("high"),
+            "low": data.get("low"),
+            "bid": data.get("bid"),
+            "bidVolume": data.get("bidVolume"),
+            "ask": data.get("ask"),
+            "askVolume": data.get("askVolume"),
+            "vwap": data.get("vwap"),
+            "open": data.get("open"),
+            "close": data.get("close"),
+            "last": data.get("last"),
+            "previousClose": data.get("previousClose"),
+            "change": data.get("change"),
+            "percentage": data.get("percentage"),
+            "average": data.get("average"),
+            "baseVolume": data.get("baseVolume"),
+            "quoteVolume": data.get("quoteVolume"),
+            "collected_at": collected_at
+        }

@@ -161,7 +161,9 @@ class ParquetWriter(BaseWriter):
             # Build partition path
             partition_path = output_path
             for col, val in zip(partition_cols, partition_values):
-                partition_path = self.storage.join_path(partition_path, f"{col}={val}")
+                # Sanitize partition value (e.g. replace '/' with '-')
+                safe_val = str(val).replace("/", "-")
+                partition_path = self.storage.join_path(partition_path, f"{col}={safe_val}")
             
             # Ensure directory exists (local only, no-op for S3)
             self.storage.mkdir(partition_path)

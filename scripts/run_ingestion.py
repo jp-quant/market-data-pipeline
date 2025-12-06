@@ -31,8 +31,18 @@ async def main():
         default=60,
         help="Print stats every N seconds (default: 60)"
     )
+    parser.add_argument(
+        "--sources",
+        type=str,
+        help="Comma-separated list of sources to run (e.g. 'coinbase,ccxt'). If omitted, runs all configured sources."
+    )
     
     args = parser.parse_args()
+    
+    # Parse sources
+    sources = None
+    if args.sources:
+        sources = [s.strip() for s in args.sources.split(",")]
     
     # Load config
     config = load_config(config_path=args.config)
@@ -44,7 +54,7 @@ async def main():
     )
     
     # Create pipeline
-    pipeline = IngestionPipeline(config)
+    pipeline = IngestionPipeline(config, sources=sources)
     
     # Setup signal handlers
     def signal_handler(sig, frame):
