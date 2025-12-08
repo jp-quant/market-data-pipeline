@@ -6,6 +6,7 @@ import ccxt.pro as ccxtpro
 from typing import List, Optional, Dict, Any
 
 from .base_collector import BaseCollector
+from ..utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +68,14 @@ class CcxtCollector(BaseCollector):
             return
 
         # Initialize exchange
+        # enableRateLimit: True is recommended by CCXT to handle the initial REST handshake 
+        # and internal throttling to avoid 429s. It generally does not affect WebSocket 
+        # throughput once connected, but ensures connection stability.
         config = {
             'apiKey': self.api_key,
             'secret': self.api_secret,
             'password': self.password,
-            'enableRateLimit': True,
+            'enableRateLimit': self.options.get('enableRateLimit', True),
             'options': self.options
         }
         self.exchange = exchange_class(config)
@@ -119,6 +123,9 @@ class CcxtCollector(BaseCollector):
                 # e.g. await exchange.watchTicker(symbol)
                 response = await getattr(self.exchange, method)(symbol)
                 
+                # Capture timestamp immediately after receipt
+                capture_ts = utc_now()
+
                 # Standardize and write
                 msg = {
                     "type": method.replace("watch", "").lower(), # e.g. ticker, trades
@@ -126,9 +133,15 @@ class CcxtCollector(BaseCollector):
                     "symbol": symbol,
                     "method": method,
                     "data": response,
-                    "collected_at": self.exchange.milliseconds()
+                    "collected_at": self.exchange.milliseconds(),
+                    "capture_ts": capture_ts.isoformat()
                 }
-                await self.log_writer.write(json.dumps(msg))
+                
+                # Write to log writer (non-blocking to avoid stalling the websocket loop)
+                try:
+                    await self.log_writer.write(msg, block=False)
+                except asyncio.QueueFull:
+                    logger.warning(f"[{self.source_name}] Queue full, dropping message")
                 
             except Exception as e:
                 if self._shutdown.is_set():
@@ -144,14 +157,23 @@ class CcxtCollector(BaseCollector):
             try:
                 response = await getattr(self.exchange, method)()
                 
+                # Capture timestamp immediately after receipt
+                capture_ts = utc_now()
+                
                 msg = {
                     "type": method.replace("watch", "").lower(),
                     "exchange": self.exchange_id,
                     "method": method,
                     "data": response,
-                    "collected_at": self.exchange.milliseconds()
+                    "collected_at": self.exchange.milliseconds(),
+                    "capture_ts": capture_ts.isoformat()
                 }
-                await self.log_writer.write(json.dumps(msg))
+                
+                # Write to log writer (non-blocking)
+                try:
+                    await self.log_writer.write(msg, block=False)
+                except asyncio.QueueFull:
+                    logger.warning(f"[{self.source_name}] Queue full, dropping message")
                 
             except Exception as e:
                 if self._shutdown.is_set():

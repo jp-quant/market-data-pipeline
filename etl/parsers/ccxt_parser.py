@@ -1,6 +1,6 @@
 """CCXT NDJSON parser - extracts and validates CCXT market data."""
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,10 @@ class CcxtParser:
             "errors": 0,
             "by_type": {},
         }
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get parser statistics."""
+        return self.stats
     
     def parse_record(self, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -50,13 +54,9 @@ class CcxtParser:
                 parsed = self._parse_ticker(data, exchange, symbol, collected_at)
             elif msg_type == "trades":
                 # watchTrades returns a list of trades
-                # We need to return a list of parsed records, but parse_record returns a single dict
-                # This interface might need adjustment or we handle it by returning a list
-                # For now, let's assume the caller can handle a list if we change the signature
-                # But BaseProcessor expects a dict or list.
-                # Wait, RawParser calls parse_record.
-                # Let's see RawParser.
                 return self._parse_trades(data, exchange, symbol, collected_at)
+            elif msg_type == "orderbook":
+                return self._parse_orderbook(data, exchange, symbol, collected_at)
             else:
                 # Unknown type
                 return None
@@ -84,13 +84,17 @@ class CcxtParser:
         
         parsed_trades = []
         for trade in data:
+            dt_str = trade.get("datetime")
+            date_str = dt_str[:10] if dt_str else None
+            
             parsed_trades.append({
                 "channel": "trades",
                 "exchange": exchange,
                 "symbol": symbol,
+                "date": date_str,
                 "trade_id": trade.get("id"),
                 "timestamp": trade.get("timestamp"),
-                "datetime": trade.get("datetime"),
+                "datetime": dt_str,
                 "symbol_ccxt": trade.get("symbol"),
                 "order_id": trade.get("order"),
                 "type": trade.get("type"),
@@ -107,12 +111,16 @@ class CcxtParser:
         """Parse CCXT ticker data."""
         # CCXT ticker structure is standard
         # We flatten it for easier Parquet storage
+        dt_str = data.get("datetime")
+        date_str = dt_str[:10] if dt_str else None
+        
         return {
             "channel": "ticker",
             "exchange": exchange,
             "symbol": symbol,
+            "date": date_str,
             "timestamp": data.get("timestamp"),  # Exchange timestamp (ms)
-            "datetime": data.get("datetime"),    # ISO8601 string
+            "datetime": dt_str,    # ISO8601 string
             "high": data.get("high"),
             "low": data.get("low"),
             "bid": data.get("bid"),
@@ -129,5 +137,34 @@ class CcxtParser:
             "average": data.get("average"),
             "baseVolume": data.get("baseVolume"),
             "quoteVolume": data.get("quoteVolume"),
+            "collected_at": collected_at
+        }
+
+    def _parse_orderbook(self, data: Dict[str, Any], exchange: str, symbol: str, collected_at: int) -> Dict[str, Any]:
+        """Parse CCXT orderbook data."""
+        # CCXT orderbook structure:
+        # {
+        #     'bids': [[price, amount], ...],
+        #     'asks': [[price, amount], ...],
+        #     'timestamp': 1234567890,
+        #     'datetime': '2023-01-01T00:00:00Z',
+        #     'nonce': 123
+        # }
+        
+        # We keep the bids/asks as lists of lists. 
+        # Parquet/Arrow can handle this as List<List<Double>>.
+        dt_str = data.get("datetime")
+        date_str = dt_str[:10] if dt_str else None
+        
+        return {
+            "channel": "orderbook",
+            "exchange": exchange,
+            "symbol": symbol,
+            "date": date_str,
+            "timestamp": data.get("timestamp"),
+            "datetime": dt_str,
+            "nonce": data.get("nonce"),
+            "bids": data.get("bids", []),
+            "asks": data.get("asks", []),
             "collected_at": collected_at
         }

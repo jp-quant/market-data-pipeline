@@ -8,6 +8,7 @@ from etl.readers.ndjson_reader import NDJSONReader
 from etl.processors.raw_parser import RawParser
 from etl.processors.ccxt.ticker_processor import CcxtTickerProcessor
 from etl.processors.ccxt.trades_processor import CcxtTradesProcessor
+from etl.processors.ccxt.orderbook_processor import CcxtOrderbookProcessor
 from etl.writers.parquet_writer import ParquetWriter
 from .pipeline import ETLPipeline
 
@@ -49,10 +50,14 @@ class CcxtSegmentPipeline:
             "trades": {
                 "partition_cols": ["exchange", "symbol", "date"],
                 "processor_options": {}
+            },
+            "orderbook": {
+                "partition_cols": ["exchange", "symbol", "date"],
+                "processor_options": {}
             }
         }
     
-    def _create_pipelines(self) -> Dict[str, ETLPipeline]:
+    def _create_pipelines(self) -> Dict[str, Dict]:
         """Create channel-specific pipelines."""
         pipelines = {}
         
@@ -73,12 +78,16 @@ class CcxtSegmentPipeline:
                 ],
                 writer=ParquetWriter(
                     storage=self.storage,
-                    base_path=f"{self.output_base_path}/{channel}",
-                    partition_cols=config.get("partition_cols", ["exchange", "symbol", "date"]),
                     compression="snappy"
                 )
             )
-            pipelines[channel] = pipeline
+            
+            # Store pipeline and its configuration
+            pipelines[channel] = {
+                "pipeline": pipeline,
+                "output_path": f"{self.output_base_path}/{channel}",
+                "partition_cols": config.get("partition_cols", ["exchange", "symbol", "date"])
+            }
             
         return pipelines
 
@@ -86,6 +95,7 @@ class CcxtSegmentPipeline:
         processors = {
             "ticker": CcxtTickerProcessor,
             "trades": CcxtTradesProcessor,
+            "orderbook": CcxtOrderbookProcessor,
         }
         return processors.get(channel)
 
@@ -102,12 +112,27 @@ class CcxtSegmentPipeline:
             if channel not in self.pipelines:
                 continue
                 
-            pipeline = self.pipelines[channel]
+            pipeline_config = self.pipelines[channel]
+            pipeline = pipeline_config["pipeline"]
+            output_path = pipeline_config["output_path"]
+            partition_cols = pipeline_config["partition_cols"]
+            
             try:
                 # Run pipeline
-                stats = pipeline.run(str(segment_path))
+                pipeline.execute(
+                    input_path=str(segment_path),
+                    output_path=output_path,
+                    partition_cols=partition_cols
+                )
+                
+                # Get stats
+                stats = pipeline.writer.get_stats()
                 results[channel] = stats
-                logger.info(f"  Channel {channel}: {stats['records_written']} records")
+                logger.info(f"  Channel {channel}: {stats.get('records_written', 0)} records")
+                
+                # Reset stats for next run
+                pipeline.reset_stats()
+                
             except Exception as e:
                 logger.error(f"  Channel {channel} failed: {e}")
                 results[channel] = {"error": str(e)}
