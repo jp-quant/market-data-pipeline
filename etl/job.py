@@ -38,6 +38,7 @@ class ETLJob:
         delete_after_processing: bool = True,
         processing_path: Optional[str] = None,
         channel_config: Optional[dict] = None,
+        compression: str = "zstd",
     ):
         """
         Initialize ETL job.
@@ -51,6 +52,7 @@ class ETLJob:
             delete_after_processing: Delete raw segments after successful ETL
             processing_path: Temp path during processing (relative to storage_input root)
             channel_config: Channel-specific configuration for pipelines
+            compression: Parquet compression codec
         """
         self.storage_input = storage_input
         self.storage_output = storage_output
@@ -58,6 +60,7 @@ class ETLJob:
         self.output_path = output_path
         self.source = source
         self.delete_after_processing = delete_after_processing
+        self.compression = compression
         
         # Processing path (for atomic move) - always on input storage
         if processing_path:
@@ -79,12 +82,14 @@ class ETLJob:
                 storage=storage_output,
                 output_base_path=output_path,
                 channel_config=channel_config,
+                compression=compression,
             )
-        elif source == "ccxt":
+        elif source == "ccxt" or source.startswith("ccxt_"):
             self.pipeline = CcxtSegmentPipeline(
                 storage=storage_output,
                 output_base_path=output_path,
                 channel_config=channel_config,
+                compression=compression,
             )
         else:
             raise ValueError(f"Unsupported source: {source}")

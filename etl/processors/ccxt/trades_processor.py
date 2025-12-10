@@ -1,11 +1,13 @@
 """CCXT Trades Processor."""
 from typing import Any, Dict, List, Union, Optional
 from ..base_processor import BaseProcessor
+from ..time_utils import add_time_fields
 
 
 class CcxtTradesProcessor(BaseProcessor):
     """
     Process CCXT trades data.
+    Adds time features.
     """
     
     def process(self, data: Any) -> Any:
@@ -28,8 +30,8 @@ class CcxtTradesProcessor(BaseProcessor):
             return None
             
         try:
-            # Add derived fields if needed
-            # For now, just pass through
+            # Add robust time features
+            add_time_fields(record, 'datetime', 'timestamp')
             
             self.stats["records_output"] += 1
             return record

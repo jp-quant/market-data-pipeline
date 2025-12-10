@@ -119,6 +119,7 @@ def main():
         delete_after_processing=config.etl.delete_after_processing,
         processing_path=processing_path,
         channel_config=channel_config,
+        compression=config.etl.compression,
     )
     
     # Execute based on mode

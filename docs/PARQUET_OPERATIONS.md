@@ -595,7 +595,7 @@ Repartitioner(
     source_dir: str,              # Existing dataset
     target_dir: str,              # New dataset location
     new_partition_cols: List[str],# New partition schema
-    compression: str = "snappy",  # Compression codec
+    compression: str = "zstd",  # Compression codec
     batch_size: int = 1_000_000,  # Rows per batch
 )
 
@@ -615,7 +615,7 @@ Repartitioner(
 ParquetCompactor(
     dataset_dir: str,                # Dataset to compact
     target_file_size_mb: int = 100, # Target file size
-    compression: str = "snappy",     # Compression codec
+    compression: str = "zstd",     # Compression codec
 )
 
 .compact(
@@ -631,7 +631,7 @@ ParquetCompactor(
 ```python
 ParquetCRUD(
     dataset_dir: str,              # Dataset directory
-    compression: str = "snappy",   # Compression codec
+    compression: str = "zstd",   # Compression codec
     backup_dir: str = None,        # Optional backup location
 )
 

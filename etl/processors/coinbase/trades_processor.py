@@ -26,13 +26,14 @@ class TradesProcessor(BaseProcessor):
         self,
         add_derived_fields: bool = True,
         infer_aggressor: bool = False,
+        **kwargs
     ):
         """
         Initialize trades processor.
         
         Args:
-            add_derived_fields: Add basic derived fields (date, hour, etc.)
-            infer_aggressor: Try to infer trade aggressor side
+            add_derived_fields: Add basic derived fields
+            infer_aggressor: Infer trade aggressor side (if missing)
         """
         super().__init__()
         self.add_derived_fields = add_derived_fields

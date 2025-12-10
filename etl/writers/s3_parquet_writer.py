@@ -53,7 +53,7 @@ class S3ParquetWriter(BaseWriter):
         self,
         s3_manager: S3StorageManager,
         base_prefix: str = "processed",
-        compression: str = "snappy"
+        compression: str = "zstd"
     ):
         """
         Initialize S3 Parquet writer.

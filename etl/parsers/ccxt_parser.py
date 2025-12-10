@@ -1,6 +1,7 @@
 """CCXT NDJSON parser - extracts and validates CCXT market data."""
 import logging
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,17 @@ class CcxtParser:
                 parsed = self._parse_ticker(data, exchange, symbol, collected_at)
             elif msg_type == "trades":
                 # watchTrades returns a list of trades
-                return self._parse_trades(data, exchange, symbol, collected_at)
+                parsed = self._parse_trades(data, exchange, symbol, collected_at)
             elif msg_type == "orderbook":
-                return self._parse_orderbook(data, exchange, symbol, collected_at)
+                parsed = self._parse_orderbook(data, exchange, symbol, collected_at)
             else:
                 # Unknown type
                 return None
                 
             if parsed:
-                self.stats["parsed"] += 1
+                # Handle list vs dict for stats
+                count = len(parsed) if isinstance(parsed, list) else 1
+                self.stats["parsed"] += count
                 return parsed
             else:
                 self.stats["errors"] += 1
@@ -84,16 +87,26 @@ class CcxtParser:
         
         parsed_trades = []
         for trade in data:
+            timestamp = trade.get("timestamp") or collected_at
             dt_str = trade.get("datetime")
+            
+            if not dt_str and timestamp:
+                try:
+                    dt = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+                    dt_str = dt.isoformat()
+                except Exception:
+                    pass
+
             date_str = dt_str[:10] if dt_str else None
             
             parsed_trades.append({
                 "channel": "trades",
                 "exchange": exchange,
                 "symbol": symbol,
+                "product_id": symbol,  # Alias for compatibility with Coinbase config
                 "date": date_str,
                 "trade_id": trade.get("id"),
-                "timestamp": trade.get("timestamp"),
+                "timestamp": timestamp,
                 "datetime": dt_str,
                 "symbol_ccxt": trade.get("symbol"),
                 "order_id": trade.get("order"),
@@ -111,15 +124,25 @@ class CcxtParser:
         """Parse CCXT ticker data."""
         # CCXT ticker structure is standard
         # We flatten it for easier Parquet storage
+        timestamp = data.get("timestamp") or collected_at
         dt_str = data.get("datetime")
+        
+        if not dt_str and timestamp:
+            try:
+                dt = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+                dt_str = dt.isoformat()
+            except Exception:
+                pass
+
         date_str = dt_str[:10] if dt_str else None
         
         return {
             "channel": "ticker",
             "exchange": exchange,
             "symbol": symbol,
+            "product_id": symbol,  # Alias for compatibility with Coinbase config
             "date": date_str,
-            "timestamp": data.get("timestamp"),  # Exchange timestamp (ms)
+            "timestamp": timestamp,  # Exchange timestamp (ms)
             "datetime": dt_str,    # ISO8601 string
             "high": data.get("high"),
             "low": data.get("low"),
@@ -153,15 +176,25 @@ class CcxtParser:
         
         # We keep the bids/asks as lists of lists. 
         # Parquet/Arrow can handle this as List<List<Double>>.
+        timestamp = data.get("timestamp") or collected_at
         dt_str = data.get("datetime")
+        
+        if not dt_str and timestamp:
+            try:
+                dt = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+                dt_str = dt.isoformat()
+            except Exception:
+                pass
+
         date_str = dt_str[:10] if dt_str else None
         
         return {
             "channel": "orderbook",
             "exchange": exchange,
             "symbol": symbol,
+            "product_id": symbol,  # Alias for compatibility with Coinbase config
             "date": date_str,
-            "timestamp": data.get("timestamp"),
+            "timestamp": timestamp,
             "datetime": dt_str,
             "nonce": data.get("nonce"),
             "bids": data.get("bids", []),

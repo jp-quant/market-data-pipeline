@@ -46,14 +46,14 @@ class ParquetWriter(BaseWriter):
     def __init__(
         self,
         output_dir: Optional[str] = None,
-        compression: str = "snappy"
+        compression: str = "zstd"
     ):
         """
         Initialize Parquet writer.
         
         Args:
             output_dir: Base directory for Parquet files (optional, can be specified per write)
-            compression: Compression codec (snappy, gzip, zstd, etc.)
+            compression: Compression codec (zstd, snappy, gzip, etc.)
         """
         super().__init__()
         self.output_dir = Path(output_dir) if output_dir else None

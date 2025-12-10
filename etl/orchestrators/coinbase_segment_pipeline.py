@@ -5,7 +5,7 @@ from typing import Optional, Dict, List
 
 from storage.base import StorageBackend
 from etl.readers.ndjson_reader import NDJSONReader
-from etl.processors.raw_parser import RawParser
+from etl.processors.raw_processor import RawProcessor
 from etl.processors.coinbase import Level2Processor, TradesProcessor, TickerProcessor
 from etl.writers.parquet_writer import ParquetWriter
 from .pipeline import ETLPipeline
@@ -38,6 +38,7 @@ class CoinbaseSegmentPipeline:
         storage: StorageBackend,
         output_base_path: str,
         channel_config: Optional[Dict[str, Dict]] = None,
+        compression: str = "zstd",
     ):
         """
         Initialize Coinbase segment pipeline.
@@ -55,11 +56,13 @@ class CoinbaseSegmentPipeline:
                         "partition_cols": ["product_id", "date"]
                     }
                 }
+            compression: Parquet compression codec
         """
         self.storage = storage
         self.source = "coinbase"
         self.output_base_path = output_base_path
         self.channel_config = channel_config or self._get_default_config()
+        self.compression = compression
         
         # Create channel-specific pipelines
         self.pipelines = self._create_pipelines()
@@ -73,7 +76,7 @@ class CoinbaseSegmentPipeline:
     def _get_default_config(self) -> Dict[str, Dict]:
         """Get default configuration per channel."""
         return {
-            "level2": {
+            "orderbook": {
                 "partition_cols": ["product_id", "date"],
                 "processor_options": {
                     "add_derived_fields": True,
@@ -81,7 +84,7 @@ class CoinbaseSegmentPipeline:
                     "compute_features": False,
                 }
             },
-            "market_trades": {
+            "trades": {
                 "partition_cols": ["product_id", "date"],
                 "processor_options": {
                     "add_derived_fields": True,
@@ -110,14 +113,14 @@ class CoinbaseSegmentPipeline:
             processor_options = config.get("processor_options", {})
             processor = processor_class(**processor_options)
             
-            # Create pipeline: NDJSON → RawParser → ChannelProcessor → Parquet
+            # Create pipeline: NDJSON → RawProcessor → ChannelProcessor → Parquet
             pipeline = ETLPipeline(
                 reader=NDJSONReader(),
                 processors=[
-                    RawParser(source=self.source, channel=channel),
+                    RawProcessor(source=self.source, channel=channel),
                     processor,
                 ],
-                writer=ParquetWriter(storage=self.storage),
+                writer=ParquetWriter(storage=self.storage, compression=self.compression),
             )
             
             pipelines[channel] = pipeline
@@ -127,8 +130,8 @@ class CoinbaseSegmentPipeline:
     def _get_processor_class(self, channel: str):
         """Get Coinbase processor class for channel."""
         processors = {
-            "level2": Level2Processor,
-            "market_trades": TradesProcessor,
+            "orderbook": Level2Processor,
+            "trades": TradesProcessor,
             "ticker": TickerProcessor,
         }
         return processors.get(channel)

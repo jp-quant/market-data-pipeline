@@ -28,7 +28,7 @@ etl/
 ├── processors/                 # ✅ REFACTORED: Composable transforms
 │   ├── __init__.py
 │   ├── base_processor.py      # Abstract interface + chain
-│   ├── raw_parser.py          # Parse NDJSON → structured
+│   ├── raw_processor.py          # Parse NDJSON → structured
 │   └── coinbase/              # Coinbase-specific processors
 │       ├── __init__.py
 │       ├── level2_processor.py    # LOB reconstruction + features

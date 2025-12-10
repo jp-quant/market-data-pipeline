@@ -11,7 +11,7 @@
 
 #### Processors
 - ✅ `etl/processors/base_processor.py` - Abstract processor + chain
-- ✅ `etl/processors/raw_parser.py` - Bridge to source parsers
+- ✅ `etl/processors/raw_processor.py` - Bridge to source parsers
 - ✅ `etl/processors/coinbase_level2_processor.py` - LOB processing
 - ✅ `etl/processors/coinbase_trades_processor.py` - Trade processing
 - ✅ `etl/processors/coinbase_ticker_processor.py` - Ticker processing

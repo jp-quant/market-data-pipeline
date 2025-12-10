@@ -143,32 +143,34 @@ class IngestionPipeline:
         """Start CCXT collectors for all configured exchanges."""
         logger.info("Initializing CCXT collectors...")
         
+        # Create a single unified LogWriter for all CCXT exchanges
+        source_name = "ccxt"
+        active_path = get_ingestion_path(self.config, source_name, state="active")
+        ready_path = get_ingestion_path(self.config, source_name, state="ready")
+        
+        ccxt_writer = LogWriter(
+            storage=self.storage,
+            active_path=active_path,
+            ready_path=ready_path,
+            source_name=source_name,
+            batch_size=self.config.ingestion.batch_size,
+            flush_interval_seconds=self.config.ingestion.flush_interval_seconds,
+            queue_maxsize=self.config.ingestion.queue_maxsize,
+            enable_fsync=self.config.ingestion.enable_fsync,
+            segment_max_mb=self.config.ingestion.segment_max_mb,
+        )
+        await ccxt_writer.start()
+        self.writers[source_name] = ccxt_writer
+        
+        logger.info(f"✓ CCXT unified writer started")
+        logger.info(f"  Active: {active_path}")
+        logger.info(f"  Ready:  {ready_path}")
+
         for exchange_id, exchange_config in self.config.ccxt.exchanges.items():
             try:
                 logger.info(f"Starting CCXT collector for {exchange_id}...")
                 
-                source_name = f"ccxt_{exchange_id}"
-                
-                # Get paths for this source
-                active_path = get_ingestion_path(self.config, source_name, state="active")
-                ready_path = get_ingestion_path(self.config, source_name, state="ready")
-                
-                # Create log writer
-                ccxt_writer = LogWriter(
-                    storage=self.storage,
-                    active_path=active_path,
-                    ready_path=ready_path,
-                    source_name=source_name,
-                    batch_size=self.config.ingestion.batch_size,
-                    flush_interval_seconds=self.config.ingestion.flush_interval_seconds,
-                    queue_maxsize=self.config.ingestion.queue_maxsize,
-                    enable_fsync=self.config.ingestion.enable_fsync,
-                    segment_max_mb=self.config.ingestion.segment_max_mb,
-                )
-                await ccxt_writer.start()
-                self.writers[source_name] = ccxt_writer
-                
-                # Create collector
+                # Create collector using the shared writer
                 ccxt_collector = CcxtCollector(
                     log_writer=ccxt_writer,
                     exchange_id=exchange_id,
@@ -177,6 +179,7 @@ class IngestionPipeline:
                     api_secret=exchange_config.api_secret,
                     password=exchange_config.password,
                     options=exchange_config.options,
+                    max_orderbook_depth=exchange_config.max_orderbook_depth,
                     auto_reconnect=self.config.ingestion.auto_reconnect,
                     max_reconnect_attempts=self.config.ingestion.max_reconnect_attempts,
                     reconnect_delay=self.config.ingestion.reconnect_delay,
@@ -185,8 +188,6 @@ class IngestionPipeline:
                 self.collectors.append(ccxt_collector)
                 
                 logger.info(f"✓ CCXT collector started for {exchange_id}")
-                logger.info(f"  Active: {active_path}")
-                logger.info(f"  Ready:  {ready_path}")
                 
             except Exception as e:
                 logger.error(f"Failed to start CCXT collector for {exchange_id}: {e}")

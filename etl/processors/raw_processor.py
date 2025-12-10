@@ -19,17 +19,21 @@ class RawProcessor(BaseProcessor):
     - Returns normalized records ready for channel-specific processing
     """
     
-    def __init__(self, source: str, channel: Optional[str] = None):
+    def __init__(self, source: str, channel: Union[str, List[str], None] = None):
         """
         Initialize raw processor.
         
         Args:
             source: Data source (coinbase, databento, ibkr)
-            channel: Optional channel filter (only parse specific channel)
+            channel: Optional channel filter (single string or list of strings)
         """
         super().__init__()
         self.source = source
         self.channel_filter = channel
+        
+        # Normalize channel filter to list or None
+        if isinstance(self.channel_filter, str):
+            self.channel_filter = [self.channel_filter]
         
         # Initialize source-specific parser
         if source == "coinbase":
@@ -85,7 +89,7 @@ class RawProcessor(BaseProcessor):
             if self.channel_filter:
                 parsed = [
                     r for r in parsed 
-                    if r.get("channel") == self.channel_filter
+                    if r.get("channel") in self.channel_filter
                 ]
             
             if not parsed:

@@ -15,7 +15,7 @@ etl/
 │
 ├── processors/                 # REFACTORED: Composable transformations
 │   ├── base_processor.py      # Base interface + ProcessorChain
-│   ├── raw_parser.py          # NEW: Parse NDJSON → structured
+│   ├── raw_processor.py          # NEW: Parse NDJSON → structured
 │   ├── level2_processor.py    # NEW: LOB processing + features
 │   ├── trades_processor.py    # NEW: Trade processing
 │   └── ticker_processor.py    # NEW: Ticker processing

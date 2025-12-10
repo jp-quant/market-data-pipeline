@@ -1,6 +1,6 @@
 """Timestamp parsing utilities for ETL processors."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -27,26 +27,24 @@ except ImportError:
 # Current approach: Fast, minimal dependencies, handles 99.9% of real-world cases
 
 
-def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
+def parse_timestamp_fields(timestamp_str: Any) -> Dict[str, Any]:
     """
-    Parse ISO8601 timestamp string and extract all time components.
+    Parse timestamp and extract all time components.
     
     Handles multiple formats:
-    - 2025-11-26T00:02:40.498898Z
-    - 2025-11-26T00:02:40.644503+00:00
-    - 2025-11-26T00:02:40Z
-    - 2025-11-26T00:02:40
+    - ISO8601 strings (e.g., 2025-11-26T00:02:40Z)
+    - Unix timestamps (int/float, seconds or milliseconds)
     - pandas.Timestamp objects
     - datetime objects
     
     Args:
-        timestamp_str: ISO8601 timestamp string, pandas.Timestamp, or datetime object
+        timestamp_str: Timestamp input (string, int, float, datetime, etc.)
         
     Returns:
         Dictionary with time fields: year, month, day, hour, minute, second, 
         microsecond, date, datetime_obj. Returns empty dict on parse failure.
     """
-    if not timestamp_str:
+    if timestamp_str is None:
         return {}
     
     try:
@@ -56,6 +54,15 @@ def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
         # Handle datetime objects directly
         elif isinstance(timestamp_str, datetime):
             dt = timestamp_str
+        # Handle numeric timestamps (Unix epoch)
+        elif isinstance(timestamp_str, (int, float)):
+            # Heuristic to detect milliseconds vs seconds
+            # 30000000000 is roughly year 2920 in seconds, but 1970 in ms
+            # Current timestamp ~1.7e9 (sec) or ~1.7e12 (ms)
+            ts = float(timestamp_str)
+            if ts > 1e11: # Likely milliseconds
+                ts = ts / 1000.0
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         # Handle string timestamps
         elif isinstance(timestamp_str, str):
             # Normalize timezone format (Z -> +00:00)
@@ -107,6 +114,8 @@ def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
             "microsecond": dt.microsecond,
             "date": dt.strftime("%Y-%m-%d"),  # For partitioning
             "datetime": dt.isoformat(),  # Full ISO8601 string
+            "day_of_week": dt.weekday(),  # 0=Monday, 6=Sunday
+            "is_weekend": dt.weekday() >= 5,  # True if Saturday/Sunday
         }
     
     except (ValueError, AttributeError) as e:
@@ -127,6 +136,8 @@ def parse_timestamp_fields(timestamp_str: Optional[str]) -> Dict[str, Any]:
                     "microsecond": dt.microsecond,
                     "date": dt.strftime("%Y-%m-%d"),
                     "datetime": dt.isoformat(),
+                    "day_of_week": dt.weekday(),  # 0=Monday, 6=Sunday
+                    "is_weekend": dt.weekday() >= 5,  # True if Saturday/Sunday
                 }
             except Exception as fallback_error:
                 logger.error(f"Dateutil fallback also failed for '{timestamp_str}': {fallback_error}")

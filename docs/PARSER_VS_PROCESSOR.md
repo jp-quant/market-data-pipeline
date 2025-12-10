@@ -187,7 +187,7 @@ etl/
 │
 ├── processors/
 │   ├── base_processor.py              # Abstract interface
-│   ├── raw_parser.py                  # Bridge to parsers
+│   ├── raw_processor.py                  # Bridge to parsers
 │   │
 │   ├── coinbase_level2_processor.py   # Coinbase LOB specific
 │   ├── coinbase_trades_processor.py   # Coinbase trades specific

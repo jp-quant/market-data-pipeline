@@ -101,7 +101,7 @@ def example_custom_pipeline():
                 compute_features=True,
             ),
         ],
-        writer=ParquetWriter(),
+        writer=ParquetWriter(compression="zstd"),
     )
     
     # Process multiple segments

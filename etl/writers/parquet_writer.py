@@ -48,14 +48,14 @@ class ParquetWriter(BaseWriter):
     def __init__(
         self,
         storage: StorageBackend,
-        compression: str = "snappy"
+        compression: str = "zstd"
     ):
         """
         Initialize Parquet writer.
         
         Args:
             storage: Storage backend instance
-            compression: Compression codec (snappy, gzip, zstd, etc.)
+            compression: Compression codec (zstd, snappy, gzip, etc.)
         """
         super().__init__()
         self.storage = storage

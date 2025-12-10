@@ -1,6 +1,7 @@
 """CCXT Ticker Processor."""
 from typing import Any, Dict, List, Union, Optional
 from ..base_processor import BaseProcessor
+from ..time_utils import add_time_fields
 
 
 class CcxtTickerProcessor(BaseProcessor):
@@ -10,6 +11,7 @@ class CcxtTickerProcessor(BaseProcessor):
     Adds derived fields:
     - spread: ask - bid
     - spread_pct: (ask - bid) / bid * 100
+    - time features: hour, day_of_week, is_weekend, etc.
     """
     
     def process(self, data: Any) -> Any:
@@ -44,6 +46,10 @@ class CcxtTickerProcessor(BaseProcessor):
                     record['spread_pct'] = (spread / bid) * 100
                 else:
                     record['spread_pct'] = None
+            
+            # Add robust time features
+            # Ticker records usually have 'datetime' (ISO) and 'timestamp' (ms)
+            add_time_fields(record, 'datetime', 'timestamp')
             
             self.stats["records_output"] += 1
             return record

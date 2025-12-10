@@ -65,7 +65,7 @@ class ParquetCRUD:
     def __init__(
         self,
         dataset_dir: str,
-        compression: str = "snappy",
+        compression: str = "zstd",
         backup_dir: Optional[str] = None,
     ):
         """

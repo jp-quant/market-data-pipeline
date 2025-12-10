@@ -5,12 +5,13 @@ from typing import Optional, Dict, List
 
 from storage.base import StorageBackend
 from etl.readers.ndjson_reader import NDJSONReader
-from etl.processors.raw_parser import RawParser
+from etl.processors.raw_processor import RawProcessor
 from etl.processors.ccxt.ticker_processor import CcxtTickerProcessor
 from etl.processors.ccxt.trades_processor import CcxtTradesProcessor
-from etl.processors.ccxt.orderbook_processor import CcxtOrderbookProcessor
+from etl.processors.ccxt.advanced_orderbook_processor import CcxtAdvancedOrderbookProcessor
 from etl.writers.parquet_writer import ParquetWriter
 from .pipeline import ETLPipeline
+from .multi_output_pipeline import MultiOutputETLPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,13 @@ class CcxtSegmentPipeline:
         storage: StorageBackend,
         output_base_path: str,
         channel_config: Optional[Dict[str, Dict]] = None,
+        compression: str = "zstd",
     ):
         self.storage = storage
         self.source = "ccxt"
         self.output_base_path = output_base_path
         self.channel_config = channel_config or self._get_default_config()
+        self.compression = compression
         
         # Create channel-specific pipelines
         self.pipelines = self._create_pipelines()
@@ -62,32 +65,57 @@ class CcxtSegmentPipeline:
         pipelines = {}
         
         for channel, config in self.channel_config.items():
-            processor_class = self._get_processor_class(channel)
-            if not processor_class:
-                logger.warning(f"No processor for channel: {channel}")
-                continue
+            
+            if channel == "orderbook":
+                # Special handling for orderbook with multi-output
+                # We also ingest 'trades' here to calculate TFI/Aggressor features
+                processor_options = config.get("processor_options", {})
+                processor = CcxtAdvancedOrderbookProcessor(**processor_options)
                 
-            processor = processor_class()
-            
-            # Create pipeline
-            pipeline = ETLPipeline(
-                reader=NDJSONReader(self.storage),
-                processors=[
-                    RawParser(source=self.source, channel=channel),
-                    processor,
-                ],
-                writer=ParquetWriter(
-                    storage=self.storage,
-                    compression="snappy"
+                pipeline = MultiOutputETLPipeline(
+                    reader=NDJSONReader(self.storage),
+                    processors=[
+                        RawProcessor(source=self.source, channel=["orderbook", "trades"]),
+                        processor,
+                    ],
+                    writers={
+                        'hf': ParquetWriter(self.storage, compression=self.compression),
+                        'bars': ParquetWriter(self.storage, compression=self.compression)
+                    }
                 )
-            )
-            
-            # Store pipeline and its configuration
-            pipelines[channel] = {
-                "pipeline": pipeline,
-                "output_path": f"{self.output_base_path}/{channel}",
-                "partition_cols": config.get("partition_cols", ["exchange", "symbol", "date"])
-            }
+                
+                pipelines[channel] = {
+                    "pipeline": pipeline,
+                    "output_path": f"{self.output_base_path}/{channel}", # Base path
+                    "partition_cols": config.get("partition_cols", ["exchange", "symbol", "date"])
+                }
+                
+            else:
+                # Standard pipeline
+                processor_class = self._get_processor_class(channel)
+                if not processor_class:
+                    logger.warning(f"No processor for channel: {channel}")
+                    continue
+                    
+                processor = processor_class()
+                
+                pipeline = ETLPipeline(
+                    reader=NDJSONReader(self.storage),
+                    processors=[
+                        RawProcessor(source=self.source, channel=channel),
+                        processor,
+                    ],
+                    writer=ParquetWriter(
+                        storage=self.storage,
+                        compression=self.compression
+                    )
+                )
+                
+                pipelines[channel] = {
+                    "pipeline": pipeline,
+                    "output_path": f"{self.output_base_path}/{channel}",
+                    "partition_cols": config.get("partition_cols", ["exchange", "symbol", "date"])
+                }
             
         return pipelines
 
@@ -95,7 +123,7 @@ class CcxtSegmentPipeline:
         processors = {
             "ticker": CcxtTickerProcessor,
             "trades": CcxtTradesProcessor,
-            "orderbook": CcxtOrderbookProcessor,
+            # "orderbook": CcxtOrderbookProcessor, # Handled separately
         }
         return processors.get(channel)
 
@@ -118,23 +146,43 @@ class CcxtSegmentPipeline:
             partition_cols = pipeline_config["partition_cols"]
             
             try:
-                # Run pipeline
-                pipeline.execute(
-                    input_path=str(segment_path),
-                    output_path=output_path,
-                    partition_cols=partition_cols
-                )
-                
-                # Get stats
-                stats = pipeline.writer.get_stats()
-                results[channel] = stats
-                logger.info(f"  Channel {channel}: {stats.get('records_written', 0)} records")
+                if isinstance(pipeline, MultiOutputETLPipeline):
+                    # Multi-output execution
+                    output_paths = {
+                        'hf': f"{output_path}/hf",
+                        'bars': f"{output_path}/bars"
+                    }
+                    pipeline.execute(
+                        input_path=str(segment_path),
+                        output_paths=output_paths,
+                        partition_cols=partition_cols
+                    )
+                    
+                    # Aggregate stats
+                    stats = {}
+                    for key, writer in pipeline.writers.items():
+                        s = writer.get_stats()
+                        stats[key] = s
+                        logger.info(f"  Channel {channel}/{key}: {s.get('records_written', 0)} records")
+                    results[channel] = stats
+                    
+                else:
+                    # Standard execution
+                    pipeline.execute(
+                        input_path=str(segment_path),
+                        output_path=output_path,
+                        partition_cols=partition_cols
+                    )
+                    
+                    stats = pipeline.writer.get_stats()
+                    results[channel] = stats
+                    logger.info(f"  Channel {channel}: {stats.get('records_written', 0)} records")
                 
                 # Reset stats for next run
                 pipeline.reset_stats()
                 
             except Exception as e:
-                logger.error(f"  Channel {channel} failed: {e}")
+                logger.error(f"  Channel {channel} failed: {e}", exc_info=True)
                 results[channel] = {"error": str(e)}
                 
         return results

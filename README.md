@@ -332,7 +332,7 @@ ingestion:
 etl:
   input_dir: "./data/raw/ready/coinbase"  # Read from ready/ only!
   output_dir: "./data/processed"
-  compression: "snappy"
+  compression: "zstd"
   delete_after_processing: true  # Auto-cleanup
   processing_dir: "./data/raw/processing"
   
@@ -487,7 +487,7 @@ FluxForge/
 │   │   │   ├── level2_processor.py
 │   │   │   ├── trades_processor.py
 │   │   │   └── ticker_processor.py
-│   │   └── raw_parser.py   # Bridge to parsers
+│   │   └── raw_processor.py   # Bridge to parsers
 │   ├── parsers/            # Parse NDJSON segments
 │   │   └── coinbase_parser.py
 │   ├── writers/            # Parquet writers

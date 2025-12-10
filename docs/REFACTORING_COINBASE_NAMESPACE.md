@@ -149,7 +149,7 @@ etl/
 │   └── coinbase_parser.py     # Handles ALL Coinbase channels
 │
 └── processors/
-    ├── raw_parser.py           # Bridge: routes to source parsers
+    ├── raw_processor.py           # Bridge: routes to source parsers
     │
     └── coinbase/               # Coinbase channel processors
         ├── level2_processor.py

@@ -40,6 +40,8 @@ class CcxtExchangeConfig(BaseModel):
     channels: Dict[str, list[str]] = Field(default_factory=dict)
     # Extra ccxt config options
     options: Dict[str, Any] = Field(default_factory=dict)
+    # Limit number of bids/asks in orderbook snapshots (None = unlimited)
+    max_orderbook_depth: Optional[int] = None
 
 
 class CcxtConfig(BaseModel):
@@ -130,22 +132,22 @@ class ChannelETLConfig(BaseModel):
 
 class ETLConfig(BaseModel):
     """ETL layer configuration."""
-    compression: str = "snappy"
+    compression: str = "zstd"
     schedule_cron: Optional[str] = None  # e.g., "0 * * * *" for hourly
     delete_after_processing: bool = True  # Delete raw segments after ETL
     
     # Channel-specific configuration
     channels: Dict[str, ChannelETLConfig] = Field(default_factory=lambda: {
-        "level2": ChannelETLConfig(
-            partition_cols=["product_id", "date"],
-            processor_options={"add_derived_fields": True}
-        ),
-        "market_trades": ChannelETLConfig(
-            partition_cols=["product_id", "date"],
-            processor_options={"add_derived_fields": True}
-        ),
         "ticker": ChannelETLConfig(
-            partition_cols=["date", "hour"],
+            partition_cols=["exchange", "symbol", "date"],
+            processor_options={"add_derived_fields": True}
+        ),
+        "orderbook": ChannelETLConfig(
+            partition_cols=["exchange", "symbol", "date"],
+            processor_options={"add_derived_fields": True}
+        ),
+        "trades": ChannelETLConfig(
+            partition_cols=["exchange", "symbol", "date"],
             processor_options={"add_derived_fields": True}
         ),
     })
@@ -251,7 +253,7 @@ def save_example_config(output_path: str = "./config/config.example.yaml"):
         "etl": {
             "input_dir": "./data/raw",
             "output_dir": "./data/processed",
-            "compression": "snappy",
+            "compression": "zstd",
         },
         "log_level": "INFO",
     }

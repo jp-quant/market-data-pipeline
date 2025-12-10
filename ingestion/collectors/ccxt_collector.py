@@ -18,6 +18,23 @@ class CcxtCollector(BaseCollector):
     Supports multiple channels (methods) per exchange.
     """
     
+    # Map CCXT method names to internal channel names
+    METHOD_TO_CHANNEL = {
+        "watchTicker": "ticker",
+        "watchTrades": "trades",
+        "watchOrderBook": "orderbook",
+        "watchBidsAsks": "bidask",
+        "watchOHLCV": "ohlcv",
+    }
+
+    # Map singular methods to their bulk counterparts
+    BULK_METHODS = {
+        "watchTicker": "watchTickers",
+        "watchTrades": "watchTradesForSymbols",
+        "watchOrderBook": "watchOrderBookForSymbols",
+        "watchOHLCV": "watchOHLCVForSymbols",
+    }
+    
     def __init__(
         self,
         log_writer,
@@ -27,6 +44,7 @@ class CcxtCollector(BaseCollector):
         api_secret: str = "",
         password: str = "",
         options: Dict[str, Any] = None,
+        max_orderbook_depth: Optional[int] = None,
         **kwargs
     ):
         """
@@ -40,6 +58,7 @@ class CcxtCollector(BaseCollector):
             api_secret: API Secret (optional)
             password: API Password (optional)
             options: Extra exchange options
+            max_orderbook_depth: Max number of bids/asks to capture (None = unlimited)
         """
         super().__init__(
             source_name=f"ccxt_{exchange_id}",
@@ -52,6 +71,7 @@ class CcxtCollector(BaseCollector):
         self.api_secret = api_secret
         self.password = password
         self.options = options or {}
+        self.max_orderbook_depth = max_orderbook_depth
         
         self.exchange = None
         self._tasks = []
@@ -82,16 +102,31 @@ class CcxtCollector(BaseCollector):
         logger.info(f"Initialized CCXT exchange {self.exchange_id}")
 
         loops = []
+        delay_counter = 0
+        # 100ms delay between subscriptions to avoid rate limits
+        # Adjust this if the exchange is still strict
+        delay_step = 0.1 
         
         for method, symbols in self.channels.items():
             if not hasattr(self.exchange, method):
                 logger.warning(f"Exchange {self.exchange_id} does not support {method}")
                 continue
                 
-            if symbols:
+            # Check for bulk method support
+            bulk_method = self.BULK_METHODS.get(method)
+            use_bulk = False
+            if bulk_method and hasattr(self.exchange, bulk_method) and symbols:
+                # Check if exchange capability explicitly says True (optional but good)
+                if self.exchange.has.get(bulk_method):
+                    use_bulk = True
+            
+            if use_bulk:
+                loops.append(self._bulk_loop(method, bulk_method, symbols))
+            elif symbols:
                 # Create a loop for each symbol if the method requires it
                 for symbol in symbols:
-                    loops.append(self._symbol_loop(method, symbol))
+                    loops.append(self._symbol_loop(method, symbol, start_delay=delay_counter * delay_step))
+                    delay_counter += 1
             else:
                 # Method without symbols (e.g. watchBalance)
                 loops.append(self._method_loop(method))
@@ -102,6 +137,10 @@ class CcxtCollector(BaseCollector):
 
         # Run all loops concurrently
         try:
+            # Stagger the start of each loop to avoid rate limits
+            # We wrap the loops in a way that they start with a delay
+            # But asyncio.gather expects coroutines. 
+            # We can modify _symbol_loop to accept a delay.
             await asyncio.gather(*loops)
         except asyncio.CancelledError:
             pass
@@ -114,25 +153,45 @@ class CcxtCollector(BaseCollector):
                 self.exchange = None
             logger.info(f"Closed CCXT exchange {self.exchange_id}")
 
-    async def _symbol_loop(self, method: str, symbol: str):
+    async def _symbol_loop(self, method: str, symbol: str, start_delay: float = 0.0):
         """Loop for a specific symbol and method."""
+        if start_delay > 0:
+            await asyncio.sleep(start_delay)
+            
         logger.info(f"Starting {self.exchange_id} {method} {symbol}")
+        
+        # Resolve internal channel name
+        channel_type = self.METHOD_TO_CHANNEL.get(method, method.replace("watch", "").lower())
+        
         while not self._shutdown.is_set():
             try:
                 # Call the watch method
                 # e.g. await exchange.watchTicker(symbol)
                 response = await getattr(self.exchange, method)(symbol)
                 
+                # Prepare data for storage
+                data_to_store = response
+
+                # Handle orderbook depth truncation if configured
+                if channel_type == "orderbook" and self.max_orderbook_depth:
+                    if isinstance(response, dict):
+                        # Create a shallow copy to avoid modifying CCXT internal state
+                        data_to_store = response.copy()
+                        if 'bids' in response:
+                            data_to_store['bids'] = response['bids'][:self.max_orderbook_depth]
+                        if 'asks' in response:
+                            data_to_store['asks'] = response['asks'][:self.max_orderbook_depth]
+                
                 # Capture timestamp immediately after receipt
                 capture_ts = utc_now()
 
                 # Standardize and write
                 msg = {
-                    "type": method.replace("watch", "").lower(), # e.g. ticker, trades
+                    "type": channel_type,
                     "exchange": self.exchange_id,
                     "symbol": symbol,
                     "method": method,
-                    "data": response,
+                    "data": data_to_store,
                     "collected_at": self.exchange.milliseconds(),
                     "capture_ts": capture_ts.isoformat()
                 }
@@ -153,6 +212,10 @@ class CcxtCollector(BaseCollector):
     async def _method_loop(self, method: str):
         """Loop for a method without symbol arguments."""
         logger.info(f"Starting {self.exchange_id} {method}")
+        
+        # Resolve internal channel name
+        channel_type = self.METHOD_TO_CHANNEL.get(method, method.replace("watch", "").lower())
+        
         while not self._shutdown.is_set():
             try:
                 response = await getattr(self.exchange, method)()
@@ -161,7 +224,7 @@ class CcxtCollector(BaseCollector):
                 capture_ts = utc_now()
                 
                 msg = {
-                    "type": method.replace("watch", "").lower(),
+                    "type": channel_type,
                     "exchange": self.exchange_id,
                     "method": method,
                     "data": response,
@@ -179,4 +242,108 @@ class CcxtCollector(BaseCollector):
                 if self._shutdown.is_set():
                     break
                 logger.error(f"Error in {self.exchange_id} {method}: {e}")
+                await asyncio.sleep(self.reconnect_delay)
+
+    async def _bulk_loop(self, method: str, bulk_method: str, symbols: List[str]):
+        """Loop for bulk subscription methods."""
+        logger.info(f"Starting {self.exchange_id} {bulk_method} for {len(symbols)} symbols")
+        channel_type = self.METHOD_TO_CHANNEL.get(method, method.replace("watch", "").lower())
+        
+        while not self._shutdown.is_set():
+            try:
+                # Call bulk method
+                if bulk_method == "watchOrderBookForSymbols" and self.max_orderbook_depth:
+                     response = await getattr(self.exchange, bulk_method)(symbols, limit=self.max_orderbook_depth)
+                else:
+                     response = await getattr(self.exchange, bulk_method)(symbols)
+                
+                capture_ts = utc_now()
+                msgs = []
+                
+                if bulk_method == "watchTickers":
+                    # response is Dict[symbol, Ticker] or List[Ticker]
+                    if isinstance(response, dict):
+                        for sym, ticker in response.items():
+                            msgs.append({
+                                "type": channel_type,
+                                "exchange": self.exchange_id,
+                                "symbol": sym,
+                                "method": method,
+                                "data": ticker,
+                                "collected_at": self.exchange.milliseconds(),
+                                "capture_ts": capture_ts.isoformat()
+                            })
+                    elif isinstance(response, list):
+                         for ticker in response:
+                            sym = ticker.get('symbol')
+                            msgs.append({
+                                "type": channel_type,
+                                "exchange": self.exchange_id,
+                                "symbol": sym,
+                                "method": method,
+                                "data": ticker,
+                                "collected_at": self.exchange.milliseconds(),
+                                "capture_ts": capture_ts.isoformat()
+                            })
+
+                elif bulk_method == "watchTradesForSymbols":
+                    # response is List[Trade]
+                    if isinstance(response, list) and response:
+                        # Group by symbol to be safe
+                        by_symbol = {}
+                        for trade in response:
+                            s = trade.get('symbol')
+                            if s not in by_symbol:
+                                by_symbol[s] = []
+                            by_symbol[s].append(trade)
+                        
+                        for s, trades in by_symbol.items():
+                            msgs.append({
+                                "type": channel_type,
+                                "exchange": self.exchange_id,
+                                "symbol": s,
+                                "method": method,
+                                "data": trades,
+                                "collected_at": self.exchange.milliseconds(),
+                                "capture_ts": capture_ts.isoformat()
+                            })
+
+                elif bulk_method == "watchOrderBookForSymbols":
+                    # response is OrderBook (dict) for the updated symbol
+                    sym = response.get('symbol')
+                    data_to_store = response
+                    if self.max_orderbook_depth:
+                        if isinstance(response, dict):
+                            data_to_store = response.copy()
+                            if 'bids' in response:
+                                data_to_store['bids'] = response['bids'][:self.max_orderbook_depth]
+                            if 'asks' in response:
+                                data_to_store['asks'] = response['asks'][:self.max_orderbook_depth]
+                    
+                    msgs.append({
+                        "type": channel_type,
+                        "exchange": self.exchange_id,
+                        "symbol": sym,
+                        "method": method,
+                        "data": data_to_store,
+                        "collected_at": self.exchange.milliseconds(),
+                        "capture_ts": capture_ts.isoformat()
+                    })
+                
+                else:
+                    # Fallback for other bulk methods (e.g. OHLCV)
+                    # Assuming they return a structure with 'symbol' or we can't easily map
+                    logger.warning(f"Unhandled bulk method return for {bulk_method}")
+
+                # Write messages
+                for msg in msgs:
+                    try:
+                        await self.log_writer.write(msg, block=False)
+                    except asyncio.QueueFull:
+                        pass
+
+            except Exception as e:
+                if self._shutdown.is_set():
+                    break
+                logger.error(f"Error in {self.exchange_id} {bulk_method}: {e}")
                 await asyncio.sleep(self.reconnect_delay)

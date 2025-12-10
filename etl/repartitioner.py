@@ -52,7 +52,7 @@ class Repartitioner:
         source_dir: str,
         target_dir: str,
         new_partition_cols: List[str],
-        compression: str = "snappy",
+        compression: str = "zstd",
         batch_size: int = 100_000,
         target_file_size_mb: int = 100,
     ):
@@ -751,7 +751,7 @@ class ParquetCompactor:
         self,
         dataset_dir: str,
         target_file_size_mb: int = 100,
-        compression: str = "snappy",
+        compression: str = "zstd",
     ):
         """
         Initialize compactor.

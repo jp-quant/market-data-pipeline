@@ -100,7 +100,7 @@ etl/processors/
 │   from .coinbase import TradesProcessor as CoinbaseTradesProcessor
 │   ...
 ├── base_processor.py
-├── raw_parser.py
+├── raw_processor.py
 └── coinbase/                # Coinbase namespace
     ├── __init__.py
     ├── level2_processor.py  # class Level2Processor

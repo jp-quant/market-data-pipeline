@@ -81,6 +81,41 @@ class ContinuousETLWatcher:
                 storage_output=self.storage_output,
                 input_path=input_path,
                 output_path=output_path,
+                source="coinbase",
+                delete_after_processing=self.config.etl.delete_after_processing,
+                processing_path=processing_path,
+                channel_config=channel_config,
+            )
+        
+        if self.config.ccxt and self.config.ccxt.exchanges:
+            # Convert channel config from Pydantic to dict format
+            channel_config = None
+            if hasattr(self.config.etl, 'channels') and self.config.etl.channels:
+                channel_config = {
+                    channel_name: {
+                        "partition_cols": channel_cfg.partition_cols,
+                        "processor_options": channel_cfg.processor_options,
+                    }
+                    for channel_name, channel_cfg in self.config.etl.channels.items()
+                    if channel_cfg.enabled
+                }
+
+            # Create a single job for unified CCXT source
+            source_name = "ccxt"
+            
+            # Get paths for unified source
+            input_path = get_etl_input_path(self.config, source_name)
+            output_path = get_etl_output_path(self.config, source_name)
+            processing_path = get_processing_path(self.config, source_name)
+            
+            logger.info(f"Initializing watcher for {source_name} at {input_path}")
+            
+            self.jobs[source_name] = ETLJob(
+                storage_input=self.storage_input,
+                storage_output=self.storage_output,
+                input_path=input_path,
+                output_path=output_path,
+                source=source_name,
                 delete_after_processing=self.config.etl.delete_after_processing,
                 processing_path=processing_path,
                 channel_config=channel_config,

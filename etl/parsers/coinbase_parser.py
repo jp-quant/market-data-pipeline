@@ -46,16 +46,14 @@ class CoinbaseParser:
             channel = data.get("channel", "unknown")
             
             # Route to channel-specific parser
-            # IMPORTANT: Coinbase uses different channel names in responses vs subscription:
-            # - Subscription: "level2" → Response: "l2_data"
-            # - Subscription: "ticker" → Response: "ticker" (same)
-            # - Subscription: "market_trades" → Response: "market_trades" (same)
-            # We normalize "l2_data" back to "level2" for consistency in output
+            # Normalize channel names to standard schema: ticker, trades, orderbook
             if channel == "ticker":
                 return self._parse_ticker(data, capture_ts, metadata)
-            elif channel in ("level2", "l2_data"):  # l2_data is actual response name
+            elif channel in ("level2", "l2_data", "orderbook"):
+                # Map level2 -> orderbook
                 return self._parse_level2(data, capture_ts, metadata)
-            elif channel == "market_trades":
+            elif channel in ("trades", "market_trades"):
+                # Map market_trades -> trades
                 return self._parse_market_trades(data, capture_ts, metadata)
             elif channel == "candles":
                 return self._parse_candles(data, capture_ts, metadata)
@@ -88,6 +86,7 @@ class CoinbaseParser:
                     record = {
                         "channel": "ticker",
                         "event_type": event.get("type", "unknown"),
+                        "symbol": ticker.get("product_id"), # Normalize to 'symbol'
                         "product_id": ticker.get("product_id"),
                         "price": float(ticker.get("price", 0)),
                         "volume_24h": float(ticker.get("volume_24_h", 0)),
@@ -144,8 +143,9 @@ class CoinbaseParser:
             for update in event.get("updates", []):
                 try:
                     record = {
-                        "channel": "level2",  # Normalize to 'level2' (from 'l2_data')
+                        "channel": "orderbook",  # Normalize to 'orderbook' (from 'level2'/'l2_data')
                         "event_type": event_type,  # "snapshot" or "update"
+                        "symbol": product_id, # Normalize to 'symbol'
                         "product_id": product_id,
                         "side": update.get("side"),  # "bid" or "offer"
                         "price_level": float(update.get("price_level", 0)),
@@ -162,7 +162,7 @@ class CoinbaseParser:
                     self.stats["errors"] += 1
         
         self.stats["parsed"] += len(records)
-        self.stats["by_channel"]["level2"] = self.stats["by_channel"].get("level2", 0) + len(records)
+        self.stats["by_channel"]["orderbook"] = self.stats["by_channel"].get("orderbook", 0) + len(records)
         
         return records
     
@@ -184,9 +184,10 @@ class CoinbaseParser:
             for trade in event.get("trades", []):
                 try:
                     record = {
-                        "channel": "market_trades",
+                        "channel": "trades",  # Normalize to 'trades' (from 'market_trades')
                         "event_type": event.get("type", "unknown"),
                         "trade_id": trade.get("trade_id"),
+                        "symbol": trade.get("product_id"), # Normalize to 'symbol'
                         "product_id": trade.get("product_id"),
                         "price": float(trade.get("price", 0)),
                         "size": float(trade.get("size", 0)),
@@ -199,7 +200,7 @@ class CoinbaseParser:
                     }
                     records.append(record)
                     self.stats["parsed"] += 1
-                    self.stats["by_channel"]["market_trades"] = self.stats["by_channel"].get("market_trades", 0) + 1
+                    self.stats["by_channel"]["trades"] = self.stats["by_channel"].get("trades", 0) + 1
                 
                 except Exception as e:
                     logger.error(f"[CoinbaseParser] Error parsing market_trade: {e}")
@@ -227,6 +228,7 @@ class CoinbaseParser:
                     record = {
                         "channel": "candles",
                         "event_type": event.get("type", "unknown"),
+                        "symbol": candle.get("product_id"), # Normalize to 'symbol'
                         "product_id": candle.get("product_id"),
                         "start": candle.get("start"),  # UNIX timestamp as string
                         "high": float(candle.get("high", 0)),

@@ -53,12 +53,14 @@ coinbase:
 ccxt:
   exchanges:
     binance:
+      max_orderbook_depth: 50
       api_key: ""
       api_secret: ""
       channels:
         watchTicker: ["BTC/USDT", "ETH/USDT"]
         watchTrades: ["BTC/USDT"]
     okex:
+      max_orderbook_depth: 50
       api_key: ""
       api_secret: ""
       password: ""
@@ -89,11 +91,17 @@ ingestion:
 
 # ETL Settings
 etl:
-  compression: "snappy"
+  compression: "zstd"
   schedule_cron: null
   delete_after_processing: true
   
   channels:
+    orderbook:
+      partition_cols: ["exchange", "symbol", "date"]
+      processor_options:
+        compute_features: true
+        max_levels: 20
+
     level2:
       partition_cols: ["product_id", "date"]
       processor_options:
@@ -162,7 +170,7 @@ ingestion:
   segment_max_mb: 100
 
 etl:
-  compression: "snappy"
+  compression: "zstd"
   delete_after_processing: true
   channels:
     level2:
@@ -233,7 +241,7 @@ ingestion:
   segment_max_mb: 100              # Rotate segment after N MB
 
 etl:
-  compression: "snappy"
+  compression: "zstd"
   delete_after_processing: true
   channels:
     level2:

@@ -30,6 +30,8 @@ class Level2Processor(BaseProcessor):
         reconstruct_lob: bool = False,
         compute_features: bool = False,
         add_derived_fields: bool = True,
+        max_levels: int = 10,
+        **kwargs
     ):
         """
         Initialize level2 processor.
@@ -38,11 +40,13 @@ class Level2Processor(BaseProcessor):
             reconstruct_lob: Maintain orderbook state and emit snapshots
             compute_features: Compute microstructure features
             add_derived_fields: Add basic derived fields (mid-price, etc.)
+            max_levels: Depth for feature extraction
         """
         super().__init__()
         self.reconstruct_lob = reconstruct_lob
         self.compute_features = compute_features
         self.add_derived_fields = add_derived_fields
+        self.max_levels = max_levels
         
         # State for LOB reconstruction (per product)
         self.orderbooks = defaultdict(lambda: {"bids": {}, "asks": {}})

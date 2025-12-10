@@ -520,7 +520,7 @@ def example_s3_parquet_writer():
     writer = S3ParquetWriter(
         s3_manager=s3,
         base_prefix="processed/coinbase",
-        compression="snappy"
+        compression="zstd"
     )
     
     # Create sample processed data
@@ -656,7 +656,7 @@ ingestion:
 
 etl:
   # input_dir/output_dir ignored when backend="s3"
-  compression: "snappy"
+  compression: "zstd"
     """
     
     logger.info(example_config)

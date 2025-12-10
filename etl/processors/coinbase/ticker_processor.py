@@ -24,12 +24,13 @@ class TickerProcessor(BaseProcessor):
     def __init__(
         self,
         add_derived_fields: bool = True,
+        **kwargs
     ):
         """
         Initialize ticker processor.
         
         Args:
-            add_derived_fields: Add basic derived fields (date, hour, etc.)
+            add_derived_fields: Add basic derived fields
         """
         super().__init__()
         self.add_derived_fields = add_derived_fields
