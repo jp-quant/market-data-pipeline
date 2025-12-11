@@ -1,235 +1,292 @@
-# =============================================================================
-# FluxForge Configuration Examples
-# =============================================================================
-# This file demonstrates various storage configuration scenarios.
-# Copy the relevant example to config/config.yaml and customize.
+# FluxForge Configuration
+# Copy this file to config.yaml and fill in your credentials
 
 # =============================================================================
-# EXAMPLE 1: ALL-LOCAL STORAGE (Development/Testing)
+# STORAGE BACKEND CONFIGURATION
 # =============================================================================
-# Use this for local development, testing, or single-machine deployments.
-# All data stays on local filesystem.
+# Explicit storage configuration per layer
+# This gives full control over where each layer reads/writes data
 
----
 storage:
   # Ingestion layer storage (where raw segments are written)
   ingestion_storage:
     backend: "local"
-    base_dir: "F:/"  # Or "./data" for relative path
+    base_dir: "./data"
   
   # ETL input storage (where ETL reads raw segments from)
   etl_storage_input:
     backend: "local"
-    base_dir: "F:/"
+    base_dir: "./data"
   
   # ETL output storage (where processed Parquet files are written)
   etl_storage_output:
     backend: "local"
-    base_dir: "F:/"
+    base_dir: "./data"
+    # backend: "s3"
+    # base_dir: "market-data-vault"
+    # s3:
+    #   bucket: "market-data-vault"
+    #   region: "us-east-1"
+    #   aws_access_key_id: null
+    #   aws_secret_access_key: null
 
+
+  # ============================================================================
+  # FULL LOCAL EXAMPLES (modify the configs above to switch modes)
+  # ============================================================================
+  # Ingestion layer storage (where raw segments are written)
+  # ingestion_storage:
+  #   backend: "local"
+  #   base_dir: "F:/"
+  
+  # ETL input storage (where ETL reads raw segments from)
+  # etl_storage_input:
+  #   backend: "local"
+  #   base_dir: "F:/"
+  
+  # ETL output storage (where processed Parquet files are written)
+  # etl_storage_output:
+  #   backend: "local"
+  #   base_dir: "F:/"
+
+  # ============================================================================
+  # HYBRID MODE EXAMPLES (modify the configs above to switch modes)
+  # ============================================================================
+  
+  # Example 1: Ingest to local, ETL to S3 (RECOMMENDED for production)
+  # Combines fast local ingestion with durable S3 storage
+  # 
+  # ingestion_storage:
+  #   backend: "local"
+  #   base_dir: "F:/"
+  # 
+  # etl_storage_input:
+  #   backend: "local"
+  #   base_dir: "F:/"
+  # 
+  # etl_storage_output:
+  #   backend: "s3"
+  #   base_dir: "market-data-vault"
+  #   s3:
+  #     bucket: "market-data-vault"
+  #     region: null
+  #     aws_access_key_id: null
+  #     aws_secret_access_key: null
+  
+  # Example 2: All S3 (fully cloud-native)
+  # 
+  # ingestion_storage:
+  #   backend: "s3"
+  #   base_dir: "market-data-vault"
+  #   s3:
+  #     bucket: "market-data-vault"
+  #     region: null
+  # 
+  # etl_storage_input:
+  #   backend: "s3"
+  #   base_dir: "market-data-vault"
+  #   s3:
+  #     bucket: "market-data-vault"
+  #     region: null
+  # 
+  # etl_storage_output:
+  #   backend: "s3"
+  #   base_dir: "market-data-vault"
+  #   s3:
+  #     bucket: "market-data-vault"
+  #     region: null
+  
+  # Example 3: Multi-bucket strategy (different buckets for raw vs processed)
+  # 
+  # ingestion_storage:
+  #   backend: "s3"
+  #   base_dir: "raw-data-bucket"
+  #   s3:
+  #     bucket: "raw-data-bucket"
+  # 
+  # etl_storage_input:
+  #   backend: "s3"
+  #   base_dir: "raw-data-bucket"
+  #   s3:
+  #     bucket: "raw-data-bucket"
+  # 
+  # etl_storage_output:
+  #   backend: "s3"
+  #   base_dir: "processed-data-bucket"
+  #   s3:
+  #     bucket: "processed-data-bucket"
+  #     region: "us-west-2"
+  
   # Path structure - customize your directory layout
+  # All paths are relative to base_dir (applies to both local and S3)
   paths:
-    raw_dir: "raw"
-    active_subdir: "active"
-    ready_subdir: "ready"
-    processing_subdir: "processing"
-    processed_dir: "processed"
+    raw_dir: "raw"              # Base for raw ingestion data
+    active_subdir: "active"      # Actively writing segments: {base_dir}/{raw_dir}/{active_subdir}/{source}/
+    ready_subdir: "ready"        # Ready for ETL: {base_dir}/{raw_dir}/{ready_subdir}/{source}/
+    processing_subdir: "processing"  # ETL in-progress
+    processed_dir: "processed"   # Processed data: {base_dir}/{processed_dir}/{source}/
 
-# Data Sources
+# =============================================================================
+# DATA SOURCES
+# =============================================================================
+
+# Coinbase Advanced Trade API
 coinbase:
-  api_key: "your-api-key"
-  api_secret: "your-api-secret"
+  api_key: ""
+  api_secret: ""
   product_ids:
     - "BTC-USD"
     - "ETH-USD"
     - "SOL-USD"
+    - "XRP-USD"
+    - "ZEC-USD"
+    - "TNSR-USD"
+    - "DOGE-USD"
+    - "LINK-USD"
+    - "ADA-USD"
+    - "SUI-USD"
+    - "HBAR-USD"
+    - "STRK-USD"
+    - "ICP-USD"
+    - "FARTCOIN-USD"
+    - "DASH-USD"
+    - "LTC-USD"
+    - "FET-USD"
+    - "AVAX-USD"
+    - "TAO-USD"
+    - "ZORA-USD"
+    - "XLM-USD"
+    - "UNI-USD"
+    - "AERO-USD"
+    - "PENGU-USD"
+    - "BONK-USD"
+    - "PUMP-USD"
+    - "NEAR-USD"
+    - "NMR-USD"
+    - "FIL-USD"
+    - "BCH-USD"
+    - "USELESS-USD"
+    - "SEI-USD"
+    - "ONDO-USD"
+    - "AAVE-USD"
+    - "PEPE-USD"
+    - "APT-USD"
+    - "HFT-USD"
+    - "SYRUP-USD"
+    - "DOT-USD"
+    - "ARB-USD"
+    - "ZEN-USD"
+    - "WLFI-USD"
+    - "CRV-USD"
+    - "GIGA-USD"
+    - "ATOM-USD"
+    - "CTSI-USD"
+    - "TOSHI-USD"
+    - "LRC-USD"
+    - "CBETH-USD"
+    - "RENDER-USD"
+    - "TIA-USD"
+    - "SPX-USD"
+    - "XAN-USD"
+    - "INJ-USD"
+    - "XCN-USD"
+    - "ALLO-USD"
+    - "WIF-USD"
+    - "ZK-USD"
+    - "CRO-USD"
+    - "AVNT-USD"
+    - "JASMY-USD"
+    - "ASTER-USD"
+    - "SHIB-USD"
+    - "ALGO-USD"
+    - "BNB-USD"
+    - "CLANKER-USD"
+    - "WLD-USD"
+    - "SAPIEN-USD"
+    - "POPCAT-USD"
+    - "ENA-USD"
+    - "A8-USD"
+    - "MOODENG-USD"
+    - "POL-USD"
+    - "VET-USD"
+    - "TRUMP-USD"
+    - "ZRO-USD"
+    - "OP-USD"
+    - "ETC-USD"
+    - "QNT-USD"
+    - "IP-USD"
+    - "PAXG-USD"
+    - "CLV-USD"
+    - "PRCL-USD"
+    - "EDGE-USD"
+    - "LDO-USD"
+    - "CORECHAIN-USD"
+    - "FORT-USD"
+    - "REZ-USD"
+    - "COTI-USD"
+    - "IMX-USD"
+    - "PENDLE-USD"
+    - "MORPHO-USD"
+    - "KTA-USD"
+    - "MOG-USD"
+    - "KARRAT-USD"
+    - "TRB-USD"
+    - "HONEY-USD"
+    - "MET-USD"
+    - "PYR-USD"
+    - "ATH-USD"
   channels:
     - "ticker"
     - "level2"
     - "market_trades"
   ws_url: "wss://advanced-trade-ws.coinbase.com"
-  level2_batch_size: 10
+  level2_batch_size: 10  # Max products per level2 subscription (Coinbase limit)
 
+# =============================================================================
+# CCXT (Multi-Exchange Support)
+# =============================================================================
 ccxt:
   exchanges:
-    binance:
+    binanceus:
+      max_orderbook_depth: 50
+      channels:
+        watchTicker: ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'BNB/USD', 'ADA/USD', 'DOGE/USD', 'PEPE/USD', 'HYPE/USD', 'LINK/USD', 'FET/USD', 'ONE/USD', 'DOT/USD', 'ICP/USD', 'TRUMP/USD', 'AVAX/USD', 'HBAR/USD', 'KDA/USD', 'ENS/USD', 'VET/USD', 'AAVE/USD', 'JUP/USD', 'SUI/USD', 'THETA/USD', 'FIL/USD', 'APT/USD', 'LTC/USD', 'MANA/USD', 'POL/USD', 'GALA/USD', 'RENDER/USD', 'BCH/USD', 'UNI/USD', 'LPT/USD', 'GRT/USD', 'IOTA/USD', 'XLM/USD', 'NEAR/USD', 'ATOM/USD', 'SHIB/USD', 'CRV/USD', 'RVN/USD', 'VTHO/USD', 'ZIL/USD', 'DGB/USD', 'ALGO/USD', 'ETC/USD', 'BONK/USD', 'SUSHI/USD', 'ME/USD']
+        watchTrades: ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'BNB/USD', 'ADA/USD', 'DOGE/USD', 'PEPE/USD', 'HYPE/USD', 'LINK/USD', 'FET/USD', 'ONE/USD', 'DOT/USD', 'ICP/USD', 'TRUMP/USD', 'AVAX/USD', 'HBAR/USD', 'KDA/USD', 'ENS/USD', 'VET/USD', 'AAVE/USD', 'JUP/USD', 'SUI/USD', 'THETA/USD', 'FIL/USD', 'APT/USD', 'LTC/USD', 'MANA/USD', 'POL/USD', 'GALA/USD', 'RENDER/USD', 'BCH/USD', 'UNI/USD', 'LPT/USD', 'GRT/USD', 'IOTA/USD', 'XLM/USD', 'NEAR/USD', 'ATOM/USD', 'SHIB/USD', 'CRV/USD', 'RVN/USD', 'VTHO/USD', 'ZIL/USD', 'DGB/USD', 'ALGO/USD', 'ETC/USD', 'BONK/USD', 'SUSHI/USD', 'ME/USD']
+        watchOrderBook: ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'BNB/USD', 'ADA/USD', 'DOGE/USD', 'PEPE/USD', 'HYPE/USD', 'LINK/USD', 'FET/USD', 'ONE/USD', 'DOT/USD', 'ICP/USD', 'TRUMP/USD', 'AVAX/USD', 'HBAR/USD', 'KDA/USD', 'ENS/USD', 'VET/USD', 'AAVE/USD', 'JUP/USD', 'SUI/USD', 'THETA/USD', 'FIL/USD', 'APT/USD', 'LTC/USD', 'MANA/USD', 'POL/USD', 'GALA/USD', 'RENDER/USD', 'BCH/USD', 'UNI/USD', 'LPT/USD', 'GRT/USD', 'IOTA/USD', 'XLM/USD', 'NEAR/USD', 'ATOM/USD', 'SHIB/USD', 'CRV/USD', 'RVN/USD', 'VTHO/USD', 'ZIL/USD', 'DGB/USD', 'ALGO/USD', 'ETC/USD', 'BONK/USD', 'SUSHI/USD', 'ME/USD']
+    coinbaseadvanced:
       max_orderbook_depth: 50
       api_key: ""
       api_secret: ""
       channels:
-        watchTicker: ["BTC/USDT", "ETH/USDT"]
-        watchTrades: ["BTC/USDT"]
-    okex:
-      max_orderbook_depth: 50
-      api_key: ""
-      api_secret: ""
-      password: ""
-      channels:
-        watchOrderBook: ["BTC/USDT"]
+        watchTicker: ['BTC/USDC', 'ETH/USDC', 'XRP/USDC', 'SOL/USDC', 'ZEC/USDC', 'LINK/USDC', 'DOGE/USDC', 'ADA/USDC', 'SUI/USDC', 'FARTCOIN/USDC', 'PENGU/USDC', 'AAVE/USDC', 'HBAR/USDC', 'MON/USDC', 'AVAX/USDC', 'TAO/USDC', 'BCH/USDC', 'LTC/USDC', 'XLM/USDC', 'PEPE/USDC', 'ICP/USDC', 'BONK/USDC', 'UNI/USDC', 'ONDO/USDC', 'ZEN/USDC']
+        watchTrades: ['BTC/USDC', 'ETH/USDC', 'XRP/USDC', 'SOL/USDC', 'ZEC/USDC', 'LINK/USDC', 'DOGE/USDC', 'ADA/USDC', 'SUI/USDC', 'FARTCOIN/USDC', 'PENGU/USDC', 'AAVE/USDC', 'HBAR/USDC', 'MON/USDC', 'AVAX/USDC', 'TAO/USDC', 'BCH/USDC', 'LTC/USDC', 'XLM/USDC', 'PEPE/USDC', 'ICP/USDC', 'BONK/USDC', 'UNI/USDC', 'ONDO/USDC', 'ZEN/USDC']
+        watchOrderBook: ['BTC/USDC', 'ETH/USDC', 'XRP/USDC', 'SOL/USDC', 'ZEC/USDC', 'LINK/USDC', 'DOGE/USDC', 'ADA/USDC', 'SUI/USDC', 'FARTCOIN/USDC', 'PENGU/USDC', 'AAVE/USDC', 'HBAR/USDC', 'MON/USDC', 'AVAX/USDC', 'TAO/USDC', 'BCH/USDC', 'LTC/USDC', 'XLM/USDC', 'PEPE/USDC', 'ICP/USDC', 'BONK/USDC', 'UNI/USDC', 'ONDO/USDC', 'ZEN/USDC']
 
+# =============================================================================
+# DATABENTO API (for equities/ETFs/options)
+# =============================================================================
 databento:
-  api_key: "your-databento-key"
+  api_key: ""
   dataset: "XNAS.ITCH"
-  symbols: ["AAPL", "MSFT", "TSLA"]
+  symbols:
+    - "AAPL"
+    - "MSFT"
+    - "TSLA"
   schema: "trades"
 
+# =============================================================================
+# INTERACTIVE BROKERS
+# =============================================================================
 ibkr:
   gateway_url: "https://localhost:5000"
   account_id: "your-account-id"
   contracts: []
 
-# Ingestion Settings
-ingestion:
-  batch_size: 100
-  flush_interval_seconds: 5.0
-  queue_maxsize: 10000
-  enable_fsync: true
-  auto_reconnect: true
-  max_reconnect_attempts: 10
-  reconnect_delay: 5.0
-  segment_max_mb: 100
-
-# ETL Settings
-etl:
-  compression: "zstd"
-  schedule_cron: null
-  delete_after_processing: true
-  
-  channels:
-    orderbook:
-      partition_cols: ["exchange", "symbol", "date"]
-      processor_options:
-        compute_features: true
-        max_levels: 20
-
-    level2:
-      partition_cols: ["product_id", "date"]
-      processor_options:
-        reconstruct_lob: false
-        compute_features: false
-        add_derived_fields: true
-    
-    market_trades:
-      partition_cols: ["product_id", "date"]
-      processor_options:
-        add_derived_fields: true
-        infer_aggressor: false
-    
-    ticker:
-      partition_cols: ["product_id", "date"]
-      processor_options:
-        add_derived_fields: true
-
-log_level: "INFO"
-log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-
 # =============================================================================
-# EXAMPLE 2: HYBRID STORAGE (Local Ingest -> S3 ETL)
+# INGESTION LAYER SETTINGS
 # =============================================================================
-# Recommended for production: Fast local ingestion, durable S3 storage.
-
----
-storage:
-  ingestion_storage:
-    backend: "local"
-    base_dir: "/mnt/fast-ssd/data"
-  
-  etl_storage_input:
-    backend: "local"
-    base_dir: "/mnt/fast-ssd/data"
-  
-  etl_storage_output:
-    backend: "s3"
-    base_dir: "market-data-vault"
-    s3:
-      bucket: "market-data-vault"
-      region: "us-east-1"
-      # Use IAM roles in production instead of explicit keys
-      aws_access_key_id: null
-      aws_secret_access_key: null
-
-  paths:
-    raw_dir: "raw"
-    active_subdir: "active"
-    ready_subdir: "ready"
-    processing_subdir: "processing"
-    processed_dir: "processed"
-
-coinbase:
-  api_key: "your-api-key"
-  api_secret: "your-api-secret"
-  product_ids: ["BTC-USD"]
-  channels: ["ticker", "level2", "market_trades"]
-  ws_url: "wss://advanced-trade-ws.coinbase.com"
-  level2_batch_size: 10
-
-ingestion:
-  batch_size: 100
-  flush_interval_seconds: 5.0
-  segment_max_mb: 100
-
-etl:
-  compression: "zstd"
-  delete_after_processing: true
-  channels:
-    level2:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
-    market_trades:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
-    ticker:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
-
-log_level: "INFO"
-log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-
-# =============================================================================
-# EXAMPLE 3: ALL-S3 STORAGE (Cloud Native)
-# =============================================================================
-# Fully cloud-native deployment.
-
----
-storage:
-  ingestion_storage:
-    backend: "s3"
-    base_dir: "market-data-vault"
-    s3:
-      bucket: "market-data-vault"
-      region: "us-east-1"
-  
-  etl_storage_input:
-    backend: "s3"
-    base_dir: "market-data-vault"
-    s3:
-      bucket: "market-data-vault"
-      region: "us-east-1"
-  
-  etl_storage_output:
-    backend: "s3"
-    base_dir: "market-data-vault"
-    s3:
-      bucket: "market-data-vault"
-      region: "us-east-1"
-
-  paths:
-    raw_dir: "raw"
-    active_subdir: "active"
-    ready_subdir: "ready"
-    processing_subdir: "processing"
-    processed_dir: "processed"
-
-coinbase:
-  api_key: "your-api-key"
-  api_secret: "your-api-secret"
-  product_ids: ["BTC-USD"]
-  channels: ["ticker", "level2", "market_trades"]
-  ws_url: "wss://advanced-trade-ws.coinbase.com"
-  level2_batch_size: 10
-
+# Controls how data is collected from WebSocket APIs
+# Paths determined by storage.paths configuration above
 ingestion:
   batch_size: 100                  # Records per batch write
   flush_interval_seconds: 5.0      # Force flush every N seconds
@@ -240,19 +297,42 @@ ingestion:
   reconnect_delay: 5.0             # Seconds between reconnect attempts
   segment_max_mb: 100              # Rotate segment after N MB
 
+# =============================================================================
+# ETL LAYER SETTINGS
+# =============================================================================
 etl:
-  compression: "zstd"
-  delete_after_processing: true
+  compression: "zstd"            # Parquet compression (snappy, gzip, zstd)
+  schedule_cron: null              # Optional: "0 * * * *" for hourly ETL
+  delete_after_processing: true    # Delete raw segments after successful ETL
+  
+  # Channel-specific ETL configuration
   channels:
-    level2:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
-    market_trades:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
     ticker:
-      partition_cols: ["product_id", "date"]
-      processor_options: {add_derived_fields: true}
+      partition_cols:
+        - "exchange"
+        - "symbol"
+        - "date"
+      processor_options:
+        add_derived_fields: true  # Add timestamp partitions, mid-price, spread, ranges
 
+    orderbook:
+      partition_cols:
+        - "exchange"
+        - "symbol"
+        - "date"
+      processor_options:
+        compute_features: true
+        max_levels: 20  # Depth for feature extraction
+
+    trades:
+      partition_cols:
+        - "exchange"
+        - "symbol"
+        - "date"
+      processor_options: {}
+
+# =============================================================================
+# LOGGING
+# =============================================================================
 log_level: "INFO"
 log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
