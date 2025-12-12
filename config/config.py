@@ -58,6 +58,7 @@ class S3Config(BaseModel):
     aws_secret_access_key: Optional[str] = None
     aws_session_token: Optional[str] = None
     endpoint_url: Optional[str] = None  # For S3-compatible services (MinIO, etc.)
+    max_pool_connections: int = 50  # boto3 connection pool size (default 10 too low for threading)
 
 
 class PathConfig(BaseModel):

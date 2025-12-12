@@ -51,6 +51,7 @@ def _create_backend_from_layer_config(
             aws_secret_access_key=layer_config.s3.aws_secret_access_key,
             aws_session_token=layer_config.s3.aws_session_token,
             endpoint_url=layer_config.s3.endpoint_url,
+            max_pool_connections=layer_config.s3.max_pool_connections,
         )
     
     else:

@@ -299,6 +299,7 @@ class S3Storage(StorageBackend):
         aws_secret_access_key: Optional[str] = None,
         aws_session_token: Optional[str] = None,
         endpoint_url: Optional[str] = None,
+        max_pool_connections: int = 50,
     ):
         """
         Initialize S3 storage.
@@ -310,13 +311,26 @@ class S3Storage(StorageBackend):
             aws_secret_access_key: AWS secret key
             aws_session_token: Session token for temporary credentials
             endpoint_url: Custom endpoint for S3-compatible services
+            max_pool_connections: Max connections in boto3 pool (default 50 for threading)
         """
         super().__init__(bucket)
         self.bucket = bucket
         self.region = region
         
-        # Initialize boto3 client
+        # Initialize boto3 client with connection pool configuration
         import boto3
+        from botocore.config import Config
+        
+        # Configure connection pool and retry behavior
+        # max_pool_connections: Critical for ThreadPoolExecutor usage
+        # Default boto3 is only 10, which causes connection pool exhaustion
+        # when using max_workers > 10 or parallel operations
+        boto_config = Config(
+            max_pool_connections=max_pool_connections,
+            retries={'max_attempts': 3, 'mode': 'adaptive'},
+            connect_timeout=10,
+            read_timeout=60,
+        )
         
         session_kwargs = {}
         if aws_access_key_id:
@@ -328,7 +342,12 @@ class S3Storage(StorageBackend):
         if region:
             session_kwargs["region_name"] = region
         
-        self.s3_client = boto3.client("s3", **session_kwargs, endpoint_url=endpoint_url)
+        self.s3_client = boto3.client(
+            "s3",
+            config=boto_config,
+            endpoint_url=endpoint_url,
+            **session_kwargs
+        )
         
         # Initialize s3fs for data library integration
         import s3fs

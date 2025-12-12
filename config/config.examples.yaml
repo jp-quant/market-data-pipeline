@@ -57,6 +57,7 @@ storage:
         region: "us-east-1"
         aws_access_key_id: null
         aws_secret_access_key: null
+        max_pool_connections: 50  # boto3 connection pool (increase if max_workers > 10)
     
     # Sync options
     compact_before_upload: true     # Compact small parquet files before upload
@@ -114,6 +115,7 @@ storage:
   #     region: null
   #     aws_access_key_id: null
   #     aws_secret_access_key: null
+  #     max_pool_connections: 50  # Important for ThreadPoolExecutor usage
   
   # Example 2: All S3 (fully cloud-native)
   # 
