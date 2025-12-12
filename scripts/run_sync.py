@@ -1,0 +1,288 @@
+"""
+Run storage sync job - compacts and uploads local data to S3.
+
+This script is designed to run alongside ingestion and ETL:
+1. Ingestion writes raw data to local disk (fast)
+2. ETL processes data to local Parquet (fast)
+3. This sync job compacts and uploads to S3 (durable, cost-effective)
+
+Usage:
+    # One-time sync
+    python scripts/run_sync.py --mode once
+    
+    # Continuous sync (every 5 minutes)
+    python scripts/run_sync.py --mode continuous --interval 300
+    
+    # Dry run (preview without changes)
+    python scripts/run_sync.py --mode once --dry-run
+    
+    # Sync specific source
+    python scripts/run_sync.py --mode once --source ccxt
+    
+    # Download from S3 to local (reverse sync)
+    python scripts/run_sync.py --mode once --direction download
+"""
+import asyncio
+import logging
+import signal
+import sys
+import os
+from pathlib import Path
+from typing import Optional
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+os.chdir(Path(__file__).parent.parent)
+
+from config import load_config
+from storage.factory import create_etl_storage_input, create_etl_storage_output
+from storage.sync import StorageSync, StorageSyncJob
+
+logger = logging.getLogger(__name__)
+
+
+def get_default_sync_paths(source: Optional[str] = None) -> list:
+    """
+    Get default paths to sync based on source.
+    
+    Args:
+        source: Optional source filter (ccxt, coinbase, etc.)
+    
+    Returns:
+        List of path configurations
+    """
+    all_paths = [
+        # CCXT paths
+        {"source": "processed/ccxt/ticker/", "compact": True, "data_source": "ccxt"},
+        {"source": "processed/ccxt/trades/", "compact": True, "data_source": "ccxt"},
+        {"source": "processed/ccxt/orderbook/hf/", "compact": True, "data_source": "ccxt"},
+        {"source": "processed/ccxt/orderbook/bars/", "compact": True, "data_source": "ccxt"},
+        
+        # Coinbase paths
+        {"source": "processed/coinbase/ticker/", "compact": True, "data_source": "coinbase"},
+        {"source": "processed/coinbase/market_trades/", "compact": True, "data_source": "coinbase"},
+        {"source": "processed/coinbase/level2/", "compact": True, "data_source": "coinbase"},
+    ]
+    
+    if source:
+        return [p for p in all_paths if p.get("data_source") == source]
+    
+    return all_paths
+
+
+async def run_continuous(
+    job: StorageSyncJob,
+    interval: int,
+    shutdown_event: asyncio.Event,
+):
+    """Run sync job continuously until shutdown."""
+    logger.info(f"Starting continuous sync (interval={interval}s)")
+    
+    while not shutdown_event.is_set():
+        try:
+            # Run sync in executor
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, job.run)
+            
+            # Wait for interval or shutdown
+            try:
+                await asyncio.wait_for(
+                    shutdown_event.wait(),
+                    timeout=interval
+                )
+            except asyncio.TimeoutError:
+                pass  # Normal timeout, continue
+            
+        except Exception as e:
+            logger.error(f"Error in sync job: {e}", exc_info=True)
+            await asyncio.sleep(30)  # Brief pause on error
+
+
+async def main():
+    """Main entry point."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="FluxForge Storage Sync - Compact and upload to S3"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to config file (default: config/config.yaml)"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="once",
+        choices=["once", "continuous"],
+        help="Sync mode (default: once)"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        help="Seconds between syncs in continuous mode (default: 300)"
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        choices=["ccxt", "coinbase"],
+        help="Only sync specific data source"
+    )
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default="upload",
+        choices=["upload", "download"],
+        help="Sync direction: upload (local→S3) or download (S3→local)"
+    )
+    parser.add_argument(
+        "--no-compact",
+        action="store_true",
+        help="Skip compaction before upload"
+    )
+    parser.add_argument(
+        "--no-delete",
+        action="store_true",
+        help="Don't delete source files after transfer"
+    )
+    parser.add_argument(
+        "--target-size-mb",
+        type=int,
+        default=100,
+        help="Target file size for compaction (default: 100MB)"
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=5,
+        help="Parallel transfer threads (default: 5)"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview without making changes"
+    )
+    parser.add_argument(
+        "--paths",
+        type=str,
+        nargs="+",
+        help="Custom paths to sync (overrides defaults)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Load config
+    config = load_config(args.config)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=getattr(logging, config.log_level),
+        format=config.log_format
+    )
+    
+    logger.info("=" * 80)
+    logger.info("FluxForge Storage Sync")
+    logger.info("=" * 80)
+    
+    # Create storage backends
+    storage_input = create_etl_storage_input(config)
+    storage_output = create_etl_storage_output(config)
+    
+    # Determine source and destination based on direction
+    if args.direction == "upload":
+        source_storage = storage_input
+        dest_storage = storage_output
+        logger.info(f"Direction: UPLOAD (local → cloud)")
+    else:
+        source_storage = storage_output
+        dest_storage = storage_input
+        logger.info(f"Direction: DOWNLOAD (cloud → local)")
+    
+    logger.info(f"Source:      {source_storage.backend_type} @ {source_storage.base_path}")
+    logger.info(f"Destination: {dest_storage.backend_type} @ {dest_storage.base_path}")
+    
+    # Validate storage types for upload with compaction
+    if args.direction == "upload" and not args.no_compact:
+        if source_storage.backend_type != "local":
+            logger.warning("Compaction requires local source storage, disabling compaction")
+            args.no_compact = True
+    
+    # Get paths to sync
+    if args.paths:
+        sync_paths = [{"source": p, "compact": not args.no_compact} for p in args.paths]
+    else:
+        sync_paths = get_default_sync_paths(args.source)
+        # Apply compact setting
+        for p in sync_paths:
+            p["compact"] = not args.no_compact
+            p["delete_after"] = not args.no_delete
+    
+    logger.info(f"Paths to sync: {len(sync_paths)}")
+    for p in sync_paths:
+        logger.info(f"  - {p['source']} (compact={p.get('compact', True)})")
+    
+    if args.dry_run:
+        logger.info("DRY RUN MODE - No changes will be made")
+    
+    logger.info("=" * 80)
+    
+    # Create sync job
+    job = StorageSyncJob(
+        source=source_storage,
+        destination=dest_storage,
+        paths=sync_paths,
+        default_compact=not args.no_compact,
+        default_delete_after=not args.no_delete,
+        target_file_size_mb=args.target_size_mb,
+        max_workers=args.max_workers,
+    )
+    
+    # Setup shutdown handling
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(sig, frame):
+        logger.info("Received shutdown signal")
+        shutdown_event.set()
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Run based on mode
+    if args.mode == "once":
+        # Single run
+        results = job.run(dry_run=args.dry_run)
+        
+        # Print summary
+        total_transferred = sum(
+            r.get('sync_stats', {}).files_transferred if hasattr(r.get('sync_stats', {}), 'files_transferred') 
+            else r.get('sync_stats', {}).get('files_transferred', 0) if isinstance(r.get('sync_stats'), dict)
+            else 0
+            for r in results if r.get('success')
+        )
+        total_failed = sum(1 for r in results if not r.get('success'))
+        
+        logger.info("\n" + "=" * 80)
+        logger.info("SYNC SUMMARY")
+        logger.info("=" * 80)
+        logger.info(f"Paths processed: {len(results)}")
+        logger.info(f"Successful: {len(results) - total_failed}")
+        logger.info(f"Failed: {total_failed}")
+        logger.info(f"Files transferred: {total_transferred}")
+        
+        if total_failed > 0:
+            logger.error("Failed paths:")
+            for r in results:
+                if not r.get('success'):
+                    logger.error(f"  - {r['source_path']}: {r.get('error', 'Unknown error')}")
+        
+        sys.exit(0 if total_failed == 0 else 1)
+    
+    else:
+        # Continuous mode
+        await run_continuous(job, args.interval, shutdown_event)
+        logger.info("Sync job stopped")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

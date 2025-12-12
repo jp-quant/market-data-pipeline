@@ -17,6 +17,12 @@ class CoinbaseSegmentPipeline:
     """
     Coinbase-specific pipeline for processing NDJSON segments with channel routing.
     
+    Supports separate storage backends for input (NDJSON) and output (Parquet):
+    - Input storage: Where raw NDJSON segments are read from
+    - Output storage: Where processed Parquet files are written to
+    
+    This enables hybrid storage patterns (read from local, write to S3).
+    
     Automatically:
     - Reads NDJSON segments
     - Parses raw Coinbase records
@@ -39,12 +45,13 @@ class CoinbaseSegmentPipeline:
         output_base_path: str,
         channel_config: Optional[Dict[str, Dict]] = None,
         compression: str = "zstd",
+        input_storage: Optional[StorageBackend] = None,
     ):
         """
         Initialize Coinbase segment pipeline.
         
         Args:
-            storage: Storage backend instance
+            storage: Output storage backend for Parquet files
             output_base_path: Base output path for processed data (relative to storage root)
             channel_config: Per-channel configuration
                 {
@@ -57,8 +64,11 @@ class CoinbaseSegmentPipeline:
                     }
                 }
             compression: Parquet compression codec
+            input_storage: Optional separate input storage for NDJSON.
+                          If None, reader is created without storage (expects local paths).
         """
         self.storage = storage
+        self.input_storage = input_storage
         self.source = "coinbase"
         self.output_base_path = output_base_path
         self.channel_config = channel_config or self._get_default_config()
@@ -69,7 +79,8 @@ class CoinbaseSegmentPipeline:
         
         logger.info(
             f"[CoinbaseSegmentPipeline] Initialized, "
-            f"storage={storage.backend_type}, "
+            f"output_storage={storage.backend_type}, "
+            f"input_storage={input_storage.backend_type if input_storage else 'local'}, "
             f"channels={list(self.pipelines.keys())}"
         )
     
@@ -114,8 +125,9 @@ class CoinbaseSegmentPipeline:
             processor = processor_class(**processor_options)
             
             # Create pipeline: NDJSON → RawProcessor → ChannelProcessor → Parquet
+            # Use input_storage for reader, output storage for writer
             pipeline = ETLPipeline(
-                reader=NDJSONReader(),
+                reader=NDJSONReader(storage=self.input_storage),
                 processors=[
                     RawProcessor(source=self.source, channel=channel),
                     processor,

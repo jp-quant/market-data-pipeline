@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 class CcxtSegmentPipeline:
     """
     CCXT-specific pipeline for processing NDJSON segments.
+    
+    Supports separate storage backends for input (NDJSON) and output (Parquet):
+    - Input storage: Where raw NDJSON segments are read from
+    - Output storage: Where processed Parquet files are written to
+    
+    This enables hybrid storage patterns (read from local, write to S3).
     """
     
     def __init__(
@@ -27,8 +33,21 @@ class CcxtSegmentPipeline:
         output_base_path: str,
         channel_config: Optional[Dict[str, Dict]] = None,
         compression: str = "zstd",
+        input_storage: Optional[StorageBackend] = None,
     ):
+        """
+        Initialize CCXT segment pipeline.
+        
+        Args:
+            storage: Output storage backend for Parquet files
+            output_base_path: Base path for output files
+            channel_config: Per-channel configuration
+            compression: Parquet compression codec
+            input_storage: Optional separate input storage for NDJSON.
+                          If None, reader is created without storage (expects local paths).
+        """
         self.storage = storage
+        self.input_storage = input_storage
         self.source = "ccxt"
         self.output_base_path = output_base_path
         self.channel_config = channel_config or self._get_default_config()
@@ -39,7 +58,8 @@ class CcxtSegmentPipeline:
         
         logger.info(
             f"[CcxtSegmentPipeline] Initialized, "
-            f"storage={storage.backend_type}, "
+            f"output_storage={storage.backend_type}, "
+            f"input_storage={input_storage.backend_type if input_storage else 'local'}, "
             f"channels={list(self.pipelines.keys())}"
         )
     
@@ -73,7 +93,7 @@ class CcxtSegmentPipeline:
                 processor = CcxtAdvancedOrderbookProcessor(**processor_options)
                 
                 pipeline = MultiOutputETLPipeline(
-                    reader=NDJSONReader(self.storage),
+                    reader=NDJSONReader(storage=self.input_storage),
                     processors=[
                         RawProcessor(source=self.source, channel=["orderbook", "trades"]),
                         processor,
@@ -100,7 +120,7 @@ class CcxtSegmentPipeline:
                 processor = processor_class()
                 
                 pipeline = ETLPipeline(
-                    reader=NDJSONReader(self.storage),
+                    reader=NDJSONReader(storage=self.input_storage),
                     processors=[
                         RawProcessor(source=self.source, channel=channel),
                         processor,

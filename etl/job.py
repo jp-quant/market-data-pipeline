@@ -77,12 +77,14 @@ class ETLJob:
         self.storage_input.mkdir(self.processing_path)
         
         # Initialize pipeline based on source
+        # Pass both input_storage (for reading NDJSON) and storage_output (for writing Parquet)
         if source == "coinbase":
             self.pipeline = CoinbaseSegmentPipeline(
                 storage=storage_output,
                 output_base_path=output_path,
                 channel_config=channel_config,
                 compression=compression,
+                input_storage=storage_input,
             )
         elif source == "ccxt" or source.startswith("ccxt_"):
             self.pipeline = CcxtSegmentPipeline(
@@ -90,6 +92,7 @@ class ETLJob:
                 output_base_path=output_path,
                 channel_config=channel_config,
                 compression=compression,
+                input_storage=storage_input,
             )
         else:
             raise ValueError(f"Unsupported source: {source}")
@@ -152,27 +155,12 @@ class ETLJob:
             return False
         
         try:
-            # Get full path for processing
-            if self.storage_input.backend_type == "local":
-                processing_file = Path(self.storage_input.get_full_path(processing_file_path))
-            else:
-                # For S3, we need to download to temp file for NDJSON reader
-                # TODO: Make NDJSONReader support StorageBackend directly
-                import tempfile
-                data = self.storage_input.read_bytes(processing_file_path)
-                temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.ndjson', delete=False)
-                temp_file.write(data)
-                temp_file.close()
-                processing_file = Path(temp_file.name)
-            
             # Process using segment pipeline (handles all channels)
-            self.pipeline.process_segment(processing_file)
+            # NDJSONReader now supports StorageBackend, so we pass the relative path
+            # and let the reader handle local vs S3 reading
+            self.pipeline.process_segment(processing_file_path)
             
             logger.info(f"[ETLJob] Processed {segment_name} successfully")
-            
-            # Cleanup temp file if S3
-            if self.storage_input.backend_type == "s3" and processing_file.exists():
-                processing_file.unlink()
             
             # Delete or retain processed segment
             if self.delete_after_processing:

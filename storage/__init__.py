@@ -1,4 +1,12 @@
 """Storage backends for FluxForge."""
 from .base import StorageBackend, LocalStorage, S3Storage
+from .sync import StorageSync, StorageSyncJob, SyncStats
 
-__all__ = ["StorageBackend", "LocalStorage", "S3Storage"]
+__all__ = [
+    "StorageBackend",
+    "LocalStorage", 
+    "S3Storage",
+    "StorageSync",
+    "StorageSyncJob",
+    "SyncStats",
+]
