@@ -29,6 +29,48 @@ storage:
     #   region: "us-east-1"
     #   aws_access_key_id: null
     #   aws_secret_access_key: null
+  
+  # ==========================================================================
+  # SYNC JOB CONFIGURATION
+  # ==========================================================================
+  # Sync job runs separately from ETL to upload processed data to S3
+  # This allows ETL to run fast on local storage, then sync to durable S3
+  #
+  # IMPORTANT: This is separate from ETL storage because:
+  # - ETL can run fully local for performance
+  # - Sync handles local→S3 uploads on a schedule
+  # - You can sync even when ETL writes to local
+  sync:
+    enabled: false  # Set to true when ready to sync to S3
+    
+    # Source storage (where to read from - typically local processed data)
+    source:
+      backend: "local"
+      base_dir: "./data"
+    
+    # Destination storage (where to upload to - typically S3)
+    destination:
+      backend: "s3"
+      base_dir: "market-data-vault"
+      s3:
+        bucket: "market-data-vault"
+        region: "us-east-1"
+        aws_access_key_id: null
+        aws_secret_access_key: null
+    
+    # Sync options
+    compact_before_upload: true     # Compact small parquet files before upload
+    delete_after_transfer: true     # Delete local files after successful upload  
+    target_file_size_mb: 100        # Target file size for compaction
+    max_workers: 5                  # Parallel upload threads
+    interval_seconds: 300           # Seconds between syncs in continuous mode
+    
+    # Specific paths to sync (empty = sync all processed data)
+    paths: []
+    # paths:
+    #   - "processed/ccxt/ticker/"
+    #   - "processed/ccxt/trades/"
+    #   - "processed/coinbase/ticker/"
 
 
   # ============================================================================

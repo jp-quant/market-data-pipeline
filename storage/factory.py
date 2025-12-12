@@ -105,6 +105,38 @@ def create_etl_storage_output(config: "FluxForgeConfig") -> StorageBackend:
     )
 
 
+def create_sync_source_storage(config: "FluxForgeConfig") -> StorageBackend:
+    """
+    Create storage backend for sync job source (where to read from).
+    
+    Args:
+        config: FluxForge configuration
+    
+    Returns:
+        StorageBackend instance for sync source
+    """
+    return _create_backend_from_layer_config(
+        config.storage.sync.source,
+        "sync_source"
+    )
+
+
+def create_sync_destination_storage(config: "FluxForgeConfig") -> StorageBackend:
+    """
+    Create storage backend for sync job destination (where to write to).
+    
+    Args:
+        config: FluxForge configuration
+    
+    Returns:
+        StorageBackend instance for sync destination
+    """
+    return _create_backend_from_layer_config(
+        config.storage.sync.destination,
+        "sync_destination"
+    )
+
+
 def get_ingestion_path(config: "FluxForgeConfig", source_name: str, state: str = "active") -> str:
     """
     Get path for ingestion layer data.

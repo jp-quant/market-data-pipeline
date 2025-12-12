@@ -79,6 +79,45 @@ class StorageLayerConfig(BaseModel):
     s3: Optional[S3Config] = Field(default_factory=S3Config)
 
 
+class SyncConfig(BaseModel):
+    """
+    Sync job configuration for data synchronization between storage backends.
+    
+    This is separate from ETL storage because:
+    - ETL may run fully local for performance
+    - Sync job handles local→S3 uploads on a schedule
+    - Allows different sync strategies (upload, download, bidirectional)
+    """
+    enabled: bool = Field(default=False, description="Enable sync job")
+    
+    # Source storage (where to read from)
+    source: StorageLayerConfig = Field(
+        default_factory=lambda: StorageLayerConfig(backend="local", base_dir="./data")
+    )
+    
+    # Destination storage (where to write to)
+    destination: StorageLayerConfig = Field(
+        default_factory=lambda: StorageLayerConfig(
+            backend="s3",
+            base_dir="market-data-vault",
+            s3=S3Config(bucket="market-data-vault")
+        )
+    )
+    
+    # Sync options
+    compact_before_upload: bool = Field(default=True, description="Compact parquet files before upload")
+    delete_after_transfer: bool = Field(default=True, description="Delete source files after successful transfer")
+    target_file_size_mb: int = Field(default=100, description="Target file size for compaction")
+    max_workers: int = Field(default=5, description="Parallel transfer threads")
+    interval_seconds: int = Field(default=300, description="Seconds between sync runs in continuous mode")
+    
+    # Paths to sync (if empty, uses defaults)
+    paths: list[str] = Field(
+        default_factory=list,
+        description="Specific paths to sync. Empty = sync all processed data"
+    )
+
+
 class StorageConfig(BaseModel):
     """
     Explicit storage configuration per layer.
@@ -106,6 +145,9 @@ class StorageConfig(BaseModel):
     etl_storage_output: StorageLayerConfig = Field(
         default_factory=lambda: StorageLayerConfig(backend="local", base_dir="./data")
     )
+    
+    # Sync job configuration (for local→S3 uploads)
+    sync: SyncConfig = Field(default_factory=SyncConfig)
     
     # Path structure configuration (applies to all storage backends)
     paths: PathConfig = Field(default_factory=PathConfig)

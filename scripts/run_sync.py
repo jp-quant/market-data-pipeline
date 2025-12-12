@@ -6,6 +6,25 @@ This script is designed to run alongside ingestion and ETL:
 2. ETL processes data to local Parquet (fast)
 3. This sync job compacts and uploads to S3 (durable, cost-effective)
 
+Storage Configuration:
+    Sync storage is configured separately from ETL storage in config.yaml:
+    
+    storage:
+      sync:
+        enabled: true
+        source:
+          backend: "local"
+          base_dir: "./data"
+        destination:
+          backend: "s3"
+          base_dir: "market-data-vault"
+          s3:
+            bucket: "market-data-vault"
+            region: "us-east-1"
+        compact_before_upload: true
+        delete_after_transfer: true
+        target_file_size_mb: 100
+
 Usage:
     # One-time sync
     python scripts/run_sync.py --mode once
@@ -35,7 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
 
 from config import load_config
-from storage.factory import create_etl_storage_input, create_etl_storage_output
+from storage.factory import create_sync_source_storage, create_sync_destination_storage
 from storage.sync import StorageSync, StorageSyncJob
 
 logger = logging.getLogger(__name__)
@@ -185,38 +204,63 @@ async def main():
     logger.info("FluxForge Storage Sync")
     logger.info("=" * 80)
     
-    # Create storage backends
-    storage_input = create_etl_storage_input(config)
-    storage_output = create_etl_storage_output(config)
+    # Check if sync is configured/enabled
+    sync_config = config.storage.sync
+    if not sync_config.enabled:
+        logger.warning("Sync is not enabled in config. Set storage.sync.enabled = true")
+        logger.info("Using sync configuration from config.yaml anyway...")
+    
+    # Create storage backends from sync-specific config
+    sync_source = create_sync_source_storage(config)
+    sync_destination = create_sync_destination_storage(config)
     
     # Determine source and destination based on direction
     if args.direction == "upload":
-        source_storage = storage_input
-        dest_storage = storage_output
-        logger.info(f"Direction: UPLOAD (local → cloud)")
+        source_storage = sync_source
+        dest_storage = sync_destination
+        logger.info(f"Direction: UPLOAD ({sync_source.backend_type} → {sync_destination.backend_type})")
     else:
-        source_storage = storage_output
-        dest_storage = storage_input
-        logger.info(f"Direction: DOWNLOAD (cloud → local)")
+        source_storage = sync_destination
+        dest_storage = sync_source
+        logger.info(f"Direction: DOWNLOAD ({sync_destination.backend_type} → {sync_source.backend_type})")
     
     logger.info(f"Source:      {source_storage.backend_type} @ {source_storage.base_path}")
     logger.info(f"Destination: {dest_storage.backend_type} @ {dest_storage.base_path}")
     
+    # Validate storage types make sense
+    if source_storage.backend_type == dest_storage.backend_type:
+        if source_storage.base_path == dest_storage.base_path:
+            logger.error("Source and destination are identical! Check your sync configuration.")
+            logger.error("Ensure storage.sync.source and storage.sync.destination are different.")
+            sys.exit(1)
+        else:
+            logger.warning(f"Both source and destination are {source_storage.backend_type} (different paths)")
+    
     # Validate storage types for upload with compaction
-    if args.direction == "upload" and not args.no_compact:
+    # Use config defaults unless overridden by CLI args
+    compact = sync_config.compact_before_upload if not args.no_compact else False
+    delete_after = sync_config.delete_after_transfer if not args.no_delete else False
+    target_size_mb = args.target_size_mb or sync_config.target_file_size_mb
+    max_workers = args.max_workers or sync_config.max_workers
+    interval = args.interval or sync_config.interval_seconds
+    
+    if args.direction == "upload" and compact:
         if source_storage.backend_type != "local":
             logger.warning("Compaction requires local source storage, disabling compaction")
-            args.no_compact = True
+            compact = False
     
     # Get paths to sync
     if args.paths:
-        sync_paths = [{"source": p, "compact": not args.no_compact} for p in args.paths]
+        sync_paths = [{"source": p, "compact": compact} for p in args.paths]
+    elif sync_config.paths:
+        # Use paths from config
+        sync_paths = [{"source": p, "compact": compact, "delete_after": delete_after} for p in sync_config.paths]
     else:
+        # Use default paths
         sync_paths = get_default_sync_paths(args.source)
-        # Apply compact setting
         for p in sync_paths:
-            p["compact"] = not args.no_compact
-            p["delete_after"] = not args.no_delete
+            p["compact"] = compact
+            p["delete_after"] = delete_after
     
     logger.info(f"Paths to sync: {len(sync_paths)}")
     for p in sync_paths:
@@ -232,10 +276,10 @@ async def main():
         source=source_storage,
         destination=dest_storage,
         paths=sync_paths,
-        default_compact=not args.no_compact,
-        default_delete_after=not args.no_delete,
-        target_file_size_mb=args.target_size_mb,
-        max_workers=args.max_workers,
+        default_compact=compact,
+        default_delete_after=delete_after,
+        target_file_size_mb=target_size_mb,
+        max_workers=max_workers,
     )
     
     # Setup shutdown handling
@@ -280,7 +324,7 @@ async def main():
     
     else:
         # Continuous mode
-        await run_continuous(job, args.interval, shutdown_event)
+        await run_continuous(job, interval, shutdown_event)
         logger.info("Sync job stopped")
 
 
