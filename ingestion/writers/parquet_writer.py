@@ -572,7 +572,9 @@ class StreamingParquetWriter:
         writer = segment_info["writer"]
         
         try:
+            # Close writer first
             writer.close()
+            logger.debug(f"[StreamingParquetWriter] Closed writer for {channel}")
             
             # Move from active to ready
             active_path = segment_info["path"]
@@ -581,7 +583,14 @@ class StreamingParquetWriter:
             ready_path = self.storage.join_path(ready_channel_path, segment_info["name"])
             
             if self.storage.backend_type == "local":
-                self.storage.move(active_path, ready_path)
+                # Ensure paths are absolute for move operation
+                active_full = self.storage.get_full_path(active_path)
+                ready_full = self.storage.get_full_path(ready_path)
+                
+                # Use Python's shutil for reliable file move
+                import shutil
+                shutil.move(active_full, ready_full)
+                logger.debug(f"[StreamingParquetWriter] Moved {active_full} -> {ready_full}")
             else:
                 # For S3, upload the buffer
                 buffer = segment_info.get("buffer")
@@ -591,10 +600,10 @@ class StreamingParquetWriter:
             
             self.stats["rotations"] += 1
             size_mb = self._channel_sizes.get(channel, 0) / 1024 / 1024
-            logger.info(f"[StreamingParquetWriter] Rotated {channel}: {segment_info['name']} ({size_mb:.1f} MB)")
+            logger.info(f"[StreamingParquetWriter] Rotated {channel}: {segment_info['name']} ({size_mb:.1f} MB) -> ready/")
         
         except Exception as e:
-            logger.error(f"[StreamingParquetWriter] Error rotating {channel}: {e}")
+            logger.error(f"[StreamingParquetWriter] Error rotating {channel}: {e}", exc_info=True)
         
         self._channel_sizes[channel] = 0
     
